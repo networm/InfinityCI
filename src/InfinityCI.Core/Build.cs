@@ -39,10 +39,10 @@ public sealed class Build
     public long Version { get; set; }
 
     /// <summary>Per-step outcomes; persisted as JSON in <see cref="StepsJson"/>.</summary>
-    [JsonIgnore]
     public List<BuildStepResult> Steps { get; set; } = [];
 
-    /// <summary>EF-mapped JSON mirror of <see cref="Steps"/>.</summary>
+    /// <summary>EF-mapped JSON mirror of <see cref="Steps"/> (not part of the public API).</summary>
+    [JsonIgnore]
     public string StepsJson { get; set; } = "[]";
 
     public bool IsTerminal => Status is BuildStatus.Success or BuildStatus.Failed or BuildStatus.Cancelled;
