@@ -56,6 +56,17 @@ using (var scope = app.Services.CreateScope())
 
 app.UseSerilogRequestLogging();
 
+// Serve the built SPA when present (production/published layout uses wwwroot).
+var ciOptions = app.Services.GetRequiredService<CiServerOptions>();
+var distDir = Path.GetFullPath(Path.Combine(app.Environment.ContentRootPath, ciOptions.WebDistDir));
+if (Directory.Exists(distDir))
+{
+    var fileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(distDir);
+    app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = fileProvider });
+    app.UseStaticFiles(new StaticFileOptions { FileProvider = fileProvider });
+    app.MapFallbackToFile("index.html", new StaticFileOptions { FileProvider = fileProvider });
+}
+
 app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTimeOffset.UtcNow }));
 app.MapHub<CiHub>("/hubs/ci");
 app.MapCiApi();
