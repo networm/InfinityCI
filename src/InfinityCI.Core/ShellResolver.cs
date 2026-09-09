@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 
 namespace InfinityCI.Core;
 
@@ -46,15 +47,21 @@ public static class ShellResolver
         _ => throw new JobYamlException($"Unsupported shell '{shell}' on Unix. Supported: sh, bash, pwsh."),
     };
 
-    private static ProcessStartInfo Cmd(string command) => new("cmd.exe")
+    private static ProcessStartInfo Cmd(string command)
     {
-        // /s strips the outer quotes around the whole command; /d skips AutoRun scripts.
-        Arguments = $"/d /s /c \"{command}\"",
-        CreateNoWindow = true,
-        UseShellExecute = false,
-        RedirectStandardOutput = true,
-        RedirectStandardError = true,
-    };
+        var psi = new ProcessStartInfo("cmd.exe")
+        {
+            // /s strips the outer quotes around the whole command; /d skips AutoRun scripts.
+            Arguments = $"/d /s /c \"{command}\"",
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+        };
+        ApplyEncoding(psi);
+        return psi;
+    }
 
     private static ProcessStartInfo Sh(string fileName, string command)
     {
@@ -74,11 +81,39 @@ public static class ShellResolver
         return psi;
     }
 
-    private static ProcessStartInfo NewRedirected(string fileName) => new(fileName)
+    private static ProcessStartInfo NewRedirected(string fileName)
     {
-        CreateNoWindow = true,
-        UseShellExecute = false,
-        RedirectStandardOutput = true,
-        RedirectStandardError = true,
-    };
+        var psi = new ProcessStartInfo(fileName)
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+        };
+        ApplyEncoding(psi);
+        return psi;
+    }
+
+    /// <summary>
+    /// Children write in the console's code page on Windows (e.g. GBK); decode with
+    /// the same encoding so non-ASCII output survives. On Unix everything is UTF-8.
+    /// </summary>
+    private static void ApplyEncoding(ProcessStartInfo psi)
+    {
+        var encoding = Encoding.UTF8;
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                encoding = Console.OutputEncoding;
+            }
+            catch
+            {
+                // No attached console (service context) — fall back to UTF-8.
+            }
+        }
+        psi.StandardOutputEncoding = encoding;
+        psi.StandardErrorEncoding = encoding;
+    }
 }
