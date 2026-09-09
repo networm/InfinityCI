@@ -1,0 +1,27 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+artifacts/
+TestResults/
+*.binlog
+
+# Node / frontend
+node_modules/
+web/dist/
+web/.rsbuild/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+
+# Runtime data (build logs, sqlite db, workspaces)
+data/
+workspaces/
+logs/
+
+# OS
+Thumbs.db
+.DS_Store

@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/InfinityCI.Agent/InfinityCI.Agent.csproj" />
+    <Project Path="src/InfinityCI.Core/InfinityCI.Core.csproj" />
+    <Project Path="src/InfinityCI.Server/InfinityCI.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/InfinityCI.Core.Tests/InfinityCI.Core.Tests.csproj" />
+  </Folder>
+</Solution>
