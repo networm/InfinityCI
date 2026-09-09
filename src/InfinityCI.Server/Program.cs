@@ -13,6 +13,16 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// gRPC requires HTTP/2; Kestrel plaintext endpoints default to HTTP/1.1, so the
+// agent gRPC service gets a dedicated HTTP/2 (h2c) port while the web app keeps
+// HTTP/1.1 for browsers on the main port. Note: any explicit Listen* call makes
+// Kestrel ignore applicationUrl/UseUrls, so both endpoints are declared here.
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ListenLocalhost(5000);
+    options.ListenLocalhost(5001, listen => listen.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2);
+});
+
 builder.Host.UseSerilog((context, configuration) =>
     configuration.ReadFrom.Configuration(context.Configuration).Enrich.FromLogContext());
 

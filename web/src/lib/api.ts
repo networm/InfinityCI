@@ -1,4 +1,4 @@
-import type { Build, JobDefinition, LogPage } from "./types";
+import type { AgentInfo, Build, JobDefinition, LogPage } from "./types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -12,6 +12,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  agents: () => request<AgentInfo[]>("/api/agents"),
+
   jobs: () => request<JobDefinition[]>("/api/jobs"),
 
   job: (name: string) => request<JobDefinition>(`/api/jobs/${encodeURIComponent(name)}`),

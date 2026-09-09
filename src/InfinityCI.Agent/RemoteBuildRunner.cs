@@ -15,7 +15,7 @@ namespace InfinityCI.Agent;
 /// </summary>
 public sealed class RemoteBuildRunner(
     AgentOptions options,
-    ChannelWriter<AgentToMaster> outgoing,
+    AgentOutgoing outgoing,
     ConcurrentDictionary<long, CancellationTokenSource> cancellations,
     ILogger<RemoteBuildRunner> logger)
 {
@@ -185,10 +185,10 @@ public sealed class RemoteBuildRunner(
     }
 
     private Task SendLog(long buildId, long offset, string text) =>
-        outgoing.WriteAsync(new AgentToMaster
+        outgoing.SendAsync(new AgentToMaster
         {
             LogChunk = new LogChunk { BuildId = buildId, Offset = offset, Text = text },
-        }).AsTask();
+        });
 
     private Task SendStep(long buildId, int index, BuildStepStatus status, long startOffset, long endOffset, int? exitCode = null)
     {
@@ -204,8 +204,8 @@ public sealed class RemoteBuildRunner(
             update.ExitCode = code;
         else
             update.ClearExitCode();
-        return outgoing.WriteAsync(new AgentToMaster { StepUpdate = update }).AsTask();
+        return outgoing.SendAsync(new AgentToMaster { StepUpdate = update });
     }
 
-    private Task Send(AgentToMaster message) => outgoing.WriteAsync(message).AsTask();
+    private Task Send(AgentToMaster message) => outgoing.SendAsync(message);
 }

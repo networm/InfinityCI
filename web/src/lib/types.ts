@@ -58,3 +58,17 @@ export interface BuildSubscription {
   build: Build;
   lines: LogLine[];
 }
+
+export interface AgentInfo {
+  id: string;
+  name: string;
+  version: string;
+  labels: string[];
+  online: boolean;
+  maxConcurrentBuilds: number;
+  runningBuilds: number;
+  cpuPercent: number;
+  memoryPercent: number;
+  freeDiskBytes: number;
+  lastSeenUtc: string;
+}

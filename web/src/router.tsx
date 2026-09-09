@@ -1,5 +1,6 @@
 import { createRootRoute, createRoute, createRouter, Link, Outlet } from "@tanstack/react-router";
 
+import { AgentsPage } from "./pages/agents";
 import { BuildDetailPage } from "./pages/build-detail";
 import { DashboardPage } from "./pages/dashboard";
 
@@ -14,6 +15,9 @@ const rootRoute = createRootRoute({
           <nav className="flex items-center gap-4 text-sm text-muted-foreground">
             <Link to="/" className="transition-colors hover:text-foreground" activeProps={{ className: "text-foreground font-medium" }}>
               Builds
+            </Link>
+            <Link to="/agents" className="transition-colors hover:text-foreground" activeProps={{ className: "text-foreground font-medium" }}>
+              Agents
             </Link>
           </nav>
         </div>
@@ -34,13 +38,19 @@ const indexRoute = createRoute({
   component: DashboardPage,
 });
 
+const agentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/agents",
+  component: AgentsPage,
+});
+
 const buildRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/builds/$buildId",
   component: BuildDetailPage,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, buildRoute]);
+const routeTree = rootRoute.addChildren([indexRoute, agentsRoute, buildRoute]);
 
 export const router = createRouter({ routeTree });
 

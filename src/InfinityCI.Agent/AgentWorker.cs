@@ -17,16 +17,19 @@ namespace InfinityCI.Agent;
 /// </summary>
 public sealed class AgentWorker(
     AgentOptions options,
+    AgentOutgoing outgoing,
     RemoteBuildRunner runner,
     ILogger<AgentWorker> logger) : BackgroundService
 {
     private readonly ConcurrentDictionary<long, CancellationTokenSource> _cancellations = new();
-    private volatile ChannelWriter<AgentToMaster> _outgoing = Channel.CreateUnbounded<AgentToMaster>().Writer;
     private int _runningBuilds;
     private volatile bool _registered;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (string.IsNullOrWhiteSpace(options.AgentName))
+            options.AgentName = Environment.MachineName;
+
         Directory.CreateDirectory(options.DataDir);
         var agentId = LoadOrCreateAgentId();
         logger.LogInformation("Agent {Name} ({Id}) starting, master {Url}", options.AgentName, agentId, options.MasterUrl);
@@ -68,12 +71,12 @@ public sealed class AgentWorker(
         var duplex = client.Connect(cancellationToken: stoppingToken);
 
         // All request-stream writes funnel through this channel and one writer.
-        var outgoing = Channel.CreateUnbounded<AgentToMaster>(new UnboundedChannelOptions { SingleReader = true });
-        _outgoing = outgoing.Writer;
+        var outgoingChannel = Channel.CreateUnbounded<AgentToMaster>(new UnboundedChannelOptions { SingleReader = true });
+        outgoing.Set(outgoingChannel);
 
         var writer = Task.Run(async () =>
         {
-            await foreach (var message in outgoing.Reader.ReadAllAsync(stoppingToken))
+            await foreach (var message in outgoingChannel.Reader.ReadAllAsync(stoppingToken))
                 await duplex.RequestStream.WriteAsync(message);
         }, stoppingToken);
 
@@ -127,7 +130,12 @@ public sealed class AgentWorker(
         var heartbeats = Task.Run(() => HeartbeatLoop(outgoing.Writer, stoppingToken), stoppingToken);
 
         // Whichever stream side ends first terminates the connection attempt.
-        await Task.WhenAny(writer, reader, heartbeats);
+        var completed = await Task.WhenAny(writer, reader, heartbeats);
+        if (completed.IsFaulted)
+        {
+            // Surface the failure so the outer loop logs it and backs off.
+            throw completed.Exception!.GetBaseException();
+        }
 
         try
         {
@@ -139,7 +147,7 @@ public sealed class AgentWorker(
         }
     }
 
-    private async Task HeartbeatLoop(ChannelWriter<AgentToMaster> outgoing, CancellationToken stoppingToken)
+    private async Task HeartbeatLoop(ChannelWriter<AgentToMaster> requestStreamWriter, CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(options.HeartbeatIntervalSeconds));
         var process = Process.GetCurrentProcess();
@@ -152,7 +160,7 @@ public sealed class AgentWorker(
                 ? Math.Round(process.TotalProcessorTime.TotalMilliseconds / bootElapsed * 100 / Environment.ProcessorCount, 1)
                 : 0;
 
-            await outgoing.WriteAsync(new AgentToMaster
+            await requestStreamWriter.WriteAsync(new AgentToMaster
             {
                 Stats = new AgentStats
                 {
@@ -167,7 +175,7 @@ public sealed class AgentWorker(
                 // Pull: declare each free slot so the master can assign pending work.
                 var freeSlots = options.MaxConcurrentBuilds - Volatile.Read(ref _runningBuilds);
                 for (var i = 0; i < Math.Max(0, freeSlots); i++)
-                    await outgoing.WriteAsync(new AgentToMaster { RequestJob = true });
+                    await requestStreamWriter.WriteAsync(new AgentToMaster { RequestJob = true });
             }
         }
     }
