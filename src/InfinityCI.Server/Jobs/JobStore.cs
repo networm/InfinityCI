@@ -103,13 +103,14 @@ public sealed class JobStore(IOptions<CiServerOptions> optionsAccessor, ILogger<
 
         const string sample = """
             # Sample job written on first run. Edit freely — changes hot-reload.
+            # Keep commands portable (both cmd and sh support plain `echo`).
             name: hello-build
             description: Sample job created on first run
             steps:
-              - name: Check dotnet
-                command: dotnet --version
               - name: Greet
                 command: echo hello from Infinity CI
+              - name: Second step
+                command: echo the second step ran
             """;
         File.WriteAllText(Path.Combine(_options.JobsDir, "hello-build.yml"), sample);
         logger.LogInformation("Wrote sample job to {Path}", _options.JobsDir);
