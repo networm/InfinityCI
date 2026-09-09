@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading.Channels;
 using InfinityCI.Core;
+using InfinityCI.Server.Agents;
 using InfinityCI.Server.Jobs;
 using InfinityCI.Server.Storage;
 using Microsoft.Extensions.Options;
@@ -11,12 +12,15 @@ namespace InfinityCI.Server.Builds;
 /// <summary>
 /// Queues triggered builds, runs job steps as child processes, streams output
 /// into the offset-based log store, and publishes every state transition.
+/// Jobs with runs_on: agent are routed to the agent pending queue instead of
+/// the local executor.
 /// </summary>
 public sealed class BuildQueueService(
     IOptions<CiServerOptions> optionsAccessor,
     JobStore jobStore,
     BuildLogStore logStore,
     BuildEvents events,
+    AgentRegistry agentRegistry,
     IServiceScopeFactory scopeFactory,
     ILogger<BuildQueueService> logger) : BackgroundService
 {
@@ -49,9 +53,18 @@ public sealed class BuildQueueService(
             await scope.ServiceProvider.GetRequiredService<BuildRepository>().AddAsync(build, ct);
         }
 
-        await _queue.Writer.WriteAsync(build, ct);
+        if (job.RunsOnAgent)
+        {
+            // Pull dispatch: a connected agent with a free slot picks it up.
+            agentRegistry.EnqueuePending(build.Id);
+        }
+        else
+        {
+            await _queue.Writer.WriteAsync(build, ct);
+        }
         await events.PublishBuildUpdatedAsync(build);
-        logger.LogInformation("Queued build {BuildId} for job {Job}", build.Id, job.Name);
+        logger.LogInformation("Queued build {BuildId} for job {Job} ({Target})", build.Id, job.Name,
+            job.RunsOnAgent ? "agent" : "local");
         return build;
     }
 
@@ -63,6 +76,10 @@ public sealed class BuildQueueService(
             cts.Cancel();
             return true;
         }
+
+        // Builds running on a remote agent are cancelled through its stream.
+        if (await agentRegistry.TrySendCancelAsync(buildId))
+            return true;
 
         using var scope = scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<BuildRepository>();
@@ -136,7 +153,10 @@ public sealed class BuildQueueService(
         {
             if (build.Status == BuildStatus.Queued)
             {
-                await _queue.Writer.WriteAsync(build, ct);
+                if (jobStore.TryGet(build.JobName)?.RunsOnAgent == true)
+                    agentRegistry.EnqueuePending(build.Id);
+                else
+                    await _queue.Writer.WriteAsync(build, ct);
                 logger.LogInformation("Re-enqueued build {BuildId} left queued by a previous run", build.Id);
             }
             else

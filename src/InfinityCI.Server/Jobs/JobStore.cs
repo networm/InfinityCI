@@ -12,14 +12,19 @@ public sealed class JobStore(IOptions<CiServerOptions> optionsAccessor, ILogger<
 {
     private static readonly string[] Extensions = [".yml", ".yaml"];
 
+    public sealed record JobEntry(JobDefinition Definition, string RawYaml);
+
     private readonly CiServerOptions _options = optionsAccessor.Value;
-    private Dictionary<string, JobDefinition> _jobs = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, JobEntry> _jobs = new(StringComparer.OrdinalIgnoreCase);
     private FileSystemWatcher? _watcher;
     private Timer? _reloadTimer;
 
-    public IReadOnlyList<JobDefinition> Jobs => _jobs.Values.OrderBy(j => j.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    public IReadOnlyList<JobDefinition> Jobs => _jobs.Values.Select(j => j.Definition).OrderBy(j => j.Name, StringComparer.OrdinalIgnoreCase).ToList();
 
-    public JobDefinition? TryGet(string name) => _jobs.TryGetValue(name, out var job) ? job : null;
+    public JobDefinition? TryGet(string name) => _jobs.TryGetValue(name, out var entry) ? entry.Definition : null;
+
+    /// <summary>Original YAML text, sent verbatim to agents in job assignments.</summary>
+    public string? TryGetRawYaml(string name) => _jobs.TryGetValue(name, out var entry) ? entry.RawYaml : null;
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -38,15 +43,16 @@ public sealed class JobStore(IOptions<CiServerOptions> optionsAccessor, ILogger<
 
     private void Reload()
     {
-        var jobs = new Dictionary<string, JobDefinition>(StringComparer.OrdinalIgnoreCase);
+        var jobs = new Dictionary<string, JobEntry>(StringComparer.OrdinalIgnoreCase);
         foreach (var file in Directory.EnumerateFiles(_options.JobsDir))
         {
             if (!Extensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
                 continue;
             try
             {
-                var job = JobYaml.Parse(File.ReadAllText(file));
-                jobs[job.Name] = job;
+                var raw = File.ReadAllText(file);
+                var job = JobYaml.Parse(raw);
+                jobs[job.Name] = new JobEntry(job, raw);
             }
             catch (Exception ex)
             {

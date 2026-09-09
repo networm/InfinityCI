@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using InfinityCI.Server;
+using InfinityCI.Server.Agents;
 using InfinityCI.Server.Api;
 using InfinityCI.Server.Builds;
 using InfinityCI.Server.Hubs;
@@ -37,6 +38,12 @@ builder.Services.AddSingleton<BuildLogStore>();
 builder.Services.AddSingleton<JobStore>();
 builder.Services.AddScoped<BuildRepository>();
 
+// Agent infrastructure (gRPC hub, pull dispatch, lease watchdog).
+builder.Services.AddGrpc();
+builder.Services.AddSingleton<AgentRegistry>();
+builder.Services.AddSingleton<RemoteBuildCoordinator>();
+builder.Services.AddHostedService<AgentLeaseMonitor>();
+
 // Start order matters: jobs load and recovery finishes before triggers are accepted.
 builder.Services.AddHostedService<CiBroadcaster>();
 // Register concrete types so the hosted instance is the SAME one consumers resolve.
@@ -69,6 +76,7 @@ if (Directory.Exists(distDir))
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTimeOffset.UtcNow }));
 app.MapHub<CiHub>("/hubs/ci");
+app.MapGrpcService<AgentHubService>();
 app.MapCiApi();
 
 app.Run();

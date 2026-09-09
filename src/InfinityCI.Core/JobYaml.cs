@@ -53,6 +53,7 @@ public static class JobYaml
             Description = dto.Description,
             Environment = dto.Env ?? new Dictionary<string, string>(),
             Steps = steps,
+            RunsOn = string.IsNullOrWhiteSpace(dto.RunsOn) ? null : dto.RunsOn.Trim(),
         };
     }
 
@@ -61,6 +62,7 @@ public static class JobYaml
         public string? Name { get; set; }
         public string? Description { get; set; }
         public Dictionary<string, string>? Env { get; set; }
+        public string? RunsOn { get; set; }
         public List<StepDto>? Steps { get; set; }
     }
 

@@ -1,4 +1,5 @@
 using InfinityCI.Core;
+using InfinityCI.Server.Agents;
 using InfinityCI.Server.Builds;
 using InfinityCI.Server.Storage;
 using Microsoft.AspNetCore.SignalR;
@@ -12,7 +13,7 @@ public sealed record BuildSubscription(Build Build, IReadOnlyList<LogLine> Lines
 /// ConnectionId; subscriptions are per-connection and SignalR removes group
 /// membership automatically on disconnect, so tabs never affect each other.
 /// </summary>
-public sealed class CiHub(BuildLogStore logStore, BuildRepository repository) : Hub
+public sealed class CiHub(BuildLogStore logStore, BuildRepository repository, AgentRegistry agentRegistry) : Hub
 {
     /// <summary>
     /// Joins the build's group and returns a snapshot plus log lines after the
@@ -43,4 +44,13 @@ public sealed class CiHub(BuildLogStore logStore, BuildRepository repository) : 
 
     public Task UnsubscribeDashboard() =>
         Groups.RemoveFromGroupAsync(Context.ConnectionId, CiGroups.Dashboard);
+
+    public async Task<IReadOnlyList<AgentSnapshot>> SubscribeAgents()
+    {
+        await Groups.AddToGroupAsync(Context.ConnectionId, CiGroups.Agents);
+        return agentRegistry.Snapshot();
+    }
+
+    public Task UnsubscribeAgents() =>
+        Groups.RemoveFromGroupAsync(Context.ConnectionId, CiGroups.Agents);
 }

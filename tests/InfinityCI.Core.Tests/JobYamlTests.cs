@@ -71,6 +71,16 @@ public class JobYamlTests
         Assert.Throws<JobYamlException>(() => JobYaml.Parse(yaml));
     }
 
+    [Fact]
+    public void Parse_RunsOnAgent_RoutedFlagSet()
+    {
+        var job = JobYaml.Parse("name: remote\nruns_on: agent\nsteps:\n  - command: echo hi");
+        Assert.True(job.RunsOnAgent);
+
+        var local = JobYaml.Parse("name: local-job\nsteps:\n  - command: echo hi");
+        Assert.False(local.RunsOnAgent);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]

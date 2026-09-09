@@ -1,4 +1,5 @@
 using System.Text;
+using InfinityCI.Server.Agents;
 using InfinityCI.Server.Builds;
 using InfinityCI.Server.Jobs;
 using InfinityCI.Server.Storage;
@@ -12,6 +13,8 @@ public static class CiApi
 {
     public static IEndpointRouteBuilder MapCiApi(this IEndpointRouteBuilder app)
     {
+        app.MapGet("/api/agents", (AgentRegistry registry) => Results.Ok(registry.Snapshot()));
+
         var jobs = app.MapGroup("/api/jobs");
         jobs.MapGet("/", (JobStore store) => Results.Ok(store.Jobs));
         jobs.MapGet("/{name}", (string name, JobStore store) =>

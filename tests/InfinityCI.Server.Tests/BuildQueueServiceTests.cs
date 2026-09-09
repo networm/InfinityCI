@@ -1,5 +1,6 @@
 using InfinityCI.Core;
 using InfinityCI.Server;
+using InfinityCI.Server.Agents;
 using InfinityCI.Server.Builds;
 using InfinityCI.Server.Jobs;
 using InfinityCI.Server.Storage;
@@ -34,11 +35,13 @@ public class BuildQueueServiceTests : IDisposable
 
         _jobStore = new JobStore(Options.Create(_options), NullLogger<JobStore>.Instance);
         var logStore = new BuildLogStore(_options, _events);
+        var agentRegistry = new AgentRegistry(NullLogger<AgentRegistry>.Instance);
         _queue = new BuildQueueService(
             Options.Create(_options),
             _jobStore,
             logStore,
             _events,
+            agentRegistry,
             _provider.GetRequiredService<IServiceScopeFactory>(),
             NullLogger<BuildQueueService>.Instance);
 

@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+option csharp_namespace = "InfinityCI.Grpc";
+
+package infinityci.v1;
+
+// Agents always initiate the connection (NAT/firewall friendly) and pull work
+// when they have free capacity. One bidi stream per agent process.
+service AgentHub {
+  rpc Connect(stream AgentToMaster) returns (stream MasterToAgent);
+}
+
+message AgentRegistration {
+  string agent_id = 1;            // stable id, generated once and persisted by the agent
+  string agent_name = 2;
+  string version = 3;
+  repeated string labels = 4;
+  int32 max_concurrent_builds = 5;
+}
+
+message AgentStats {
+  double cpu_percent = 1;
+  double memory_percent = 2;
+  int64 free_disk_bytes = 3;
+}
+
+message LogChunk {
+  int64 build_id = 1;
+  int64 offset = 2;               // agent-side byte offset of this line (informational; the master's file is authoritative)
+  string text = 3;                // one line, no trailing newline
+}
+
+message StepUpdate {
+  int64 build_id = 1;
+  int32 step_index = 2;
+  string status = 3;              // Pending/Running/Success/Failed/Skipped/Cancelled
+  optional int32 exit_code = 4;
+  int64 start_offset = 5;
+  int64 end_offset = 6;
+}
+
+message BuildFinished {
+  int64 build_id = 1;
+  string status = 2;              // Success/Failed/Cancelled
+  optional int32 exit_code = 3;
+}
+
+message AgentToMaster {
+  oneof payload {
+    AgentRegistration register = 1;
+    AgentStats stats = 2;
+    bool request_job = 3;         // pull: agent declares it has a free slot
+    LogChunk log_chunk = 4;
+    StepUpdate step_update = 5;
+    BuildFinished build_finished = 6;
+  }
+}
+
+message JobAssignment {
+  int64 build_id = 1;
+  string job_name = 2;
+  string job_yaml = 3;            // full YAML; the agent parses and executes it
+}
+
+message MasterToAgent {
+  oneof payload {
+    bool register_ack = 1;
+    JobAssignment assignment = 2;
+    int64 cancel_build = 3;       // build id to cancel
+  }
+}
