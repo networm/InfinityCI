@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using InfinityCI.Server;
+using InfinityCI.Server.Api;
 using InfinityCI.Server.Builds;
 using InfinityCI.Server.Hubs;
 using InfinityCI.Server.Jobs;
@@ -57,6 +58,7 @@ app.UseSerilogRequestLogging();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTimeOffset.UtcNow }));
 app.MapHub<CiHub>("/hubs/ci");
+app.MapCiApi();
 
 app.Run();
 

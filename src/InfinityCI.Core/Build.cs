@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace InfinityCI.Core;
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum BuildStatus
 {
     Queued = 0,
@@ -11,6 +12,7 @@ public enum BuildStatus
     Cancelled = 4,
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum BuildStepStatus
 {
     Pending = 0,
