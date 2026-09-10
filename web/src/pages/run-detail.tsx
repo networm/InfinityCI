@@ -259,8 +259,8 @@ function DagView({
         {layout.nodes.map((node) => {
           if (node.kind === "job") {
             const isSelected = node.jobKey === selected;
-            const stroke = DAG_STATUS_STROKE[node.status ?? "Queued"] ?? "#8c959f";
-            const inner = node.status === "Success" || node.status === "Failed" || node.status === "Running";
+            const status = node.status ?? "Queued";
+            const stroke = DAG_STATUS_STROKE[status] ?? "#8c959f";
             return (
               <g
                 key={node.jobKey!}
@@ -270,25 +270,25 @@ function DagView({
               >
                 <circle
                   r={14}
-                  fill={isSelected ? "#ddf4ff" : inner ? stroke : "#ffffff"}
+                  fill={isSelected ? "#ddf4ff" : "#ffffff"}
                   stroke={isSelected ? "#0969da" : stroke}
                   strokeWidth={isSelected ? 2.5 : 2}
                 />
+                <StatusGlyph status={status} />
                 <text y={32} textAnchor="middle" fontSize={12} fill={isSelected ? "#0969da" : "#24292f"} fontFamily="inherit">
                   {node.jobKey}
                 </text>
               </g>
             );
           }
-          // start / end virtual nodes
+          // start / end virtual nodes; the end bubble shows the run result glyph
           const isEnd = node.kind === "end";
-          const stroke = isEnd ? DAG_STATUS_STROKE[node.status ?? "Queued"] ?? "#8c959f" : "#57606a";
+          const status = isEnd ? node.status : null;
+          const stroke = isEnd ? DAG_STATUS_STROKE[status ?? "Queued"] ?? "#8c959f" : "#57606a";
           return (
             <g key={node.kind} transform={`translate(${node.cx}, ${node.cy})`}>
               <circle r={11} fill="#f6f8fa" stroke={stroke} strokeWidth={2} />
-              {isEnd ? (
-                <circle r={4.5} fill={stroke} />
-              ) : (
+              {isEnd ? <StatusGlyph status={status ?? "Queued"} compact /> : (
                 <path d="M -4 0 L 4 0 M 0 -4 L 0 4" stroke={stroke} strokeWidth={1.5} />
               )}
               <text y={28} textAnchor="middle" fontSize={11} fill="#57606a" fontFamily="inherit">
@@ -414,6 +414,52 @@ function AutoScroll({
   return null;
 }
 
+
+/** Jenkins-style status glyph drawn inside a DAG bubble: ✓ success, ✗ failed,
+///  amber arc for running, dot for queued/pending/skipped. */
+function StatusGlyph({ status, compact = false }: { status: string; compact?: boolean }) {
+  const scale = compact ? 0.75 : 1;
+  const color = DAG_STATUS_STROKE[status] ?? "#8c959f";
+  const w = 2.5 * scale;
+  switch (status) {
+    case "Success":
+      return (
+        <path
+          d={`M ${-6 * scale} 0 L ${-1.5 * scale} ${4.5 * scale} L ${6 * scale} ${-4.5 * scale}`}
+          fill="none"
+          stroke={color}
+          strokeWidth={w}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      );
+    case "Failed":
+    case "Cancelled":
+      return (
+        <path
+          d={`M ${-5 * scale} ${-5 * scale} L ${5 * scale} ${5 * scale} M ${5 * scale} ${-5 * scale} L ${-5 * scale} ${5 * scale}`}
+          stroke={status === "Cancelled" ? "#8c959f" : color}
+          strokeWidth={w}
+          strokeLinecap="round"
+        />
+      );
+    case "Running":
+      return (
+        <path
+          className="animate-spin"
+          style={{ transformBox: "fill-box", transformOrigin: "center" }}
+          d="M 0 -8 A 8 8 0 1 1 -7.4 3.5"
+          fill="none"
+          stroke={color}
+          strokeWidth={w}
+          strokeLinecap="round"
+        />
+      );
+    default:
+      // Queued / Pending / Skipped
+      return <circle r={3.5 * scale} fill={color} />;
+  }
+}
 
 function JobHeader({ job }: { job: JobRun }) {
   const [open, setOpen] = useState(false);
