@@ -54,7 +54,10 @@ function emptyStep(): EditorStep {
 }
 
 export function JobEditorPage() {
-  const { name: editName } = useParams({ from: "/jobs/$name/edit", shouldThrow: false }) as { name?: string };
+  // strict: false — /jobs/new has no $name param; reading a sibling route's
+  // params with `from` throws on non-matching routes.
+  const params = useParams({ strict: false }) as { name?: string };
+  const editName = params.name;
   const isEdit = Boolean(editName);
   const navigate = useNavigate();
 
