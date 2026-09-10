@@ -225,6 +225,7 @@ public static class CiApi
                 {
                     w.Name,
                     w.Project,
+                    @params = w.Params.Select(p => new { p.Name, p.Default, p.Required, p.Description }),
                     jobs = w.Jobs.Select(j => new { key = j.Key, runsOn = j.Value.RunsOn, needs = j.Value.Needs, steps = j.Value.Steps.Count }),
                 }));
         }).RequireAuthorization();
