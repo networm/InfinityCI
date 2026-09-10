@@ -35,7 +35,14 @@ public class RunQueueServiceTests : IDisposable
         _workflowStore = new WorkflowStore(Options.Create(_options), NullLogger<WorkflowStore>.Instance);
         var logStore = new JobLogStore(_options);
         var registry = new AgentRegistry(NullLogger<AgentRegistry>.Instance);
-        var aggregator = new RunAggregator(_provider.GetRequiredService<IServiceScopeFactory>(), _events, NullLogger<RunAggregator>.Instance);
+        var localQueue = new LocalJobRunQueue();
+        var aggregator = new RunAggregator(
+            _provider.GetRequiredService<IServiceScopeFactory>(),
+            _events,
+            logStore,
+            registry,
+            localQueue,
+            NullLogger<RunAggregator>.Instance);
         var executor = new JobRunExecutor(Options.Create(_options), logStore, _events, _provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<JobRunExecutor>.Instance);
         _queue = new RunQueueService(
             Options.Create(_options),
@@ -45,6 +52,7 @@ public class RunQueueServiceTests : IDisposable
             registry,
             aggregator,
             executor,
+            localQueue,
             _provider.GetRequiredService<IServiceScopeFactory>(),
             NullLogger<RunQueueService>.Instance);
 

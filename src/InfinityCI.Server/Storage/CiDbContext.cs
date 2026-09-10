@@ -56,8 +56,10 @@ public sealed class CiDbContext(DbContextOptions<CiDbContext> options) : DbConte
             e.Property(x => x.JobKey).IsRequired();
             e.Property(x => x.RunsOn).IsRequired();
             e.Property(x => x.StepsJson).IsRequired();
+            e.Property(x => x.NeedsJson).IsRequired();
             e.HasIndex(x => new { x.RunId, x.JobKey });
             e.Ignore(x => x.Steps);
+            e.Ignore(x => x.Needs);
             ConfigureDates(e.Property(x => x.CreatedAt), e.Property(x => x.StartedAt), e.Property(x => x.FinishedAt));
         });
 

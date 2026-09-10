@@ -165,8 +165,8 @@ public sealed class RemoteBuildCoordinator(
         await events.PublishJobRunUpdatedAsync(jobRun);
         logger.LogInformation("Remote job run {JobRunId} finished: {Status}", jobRun.Id, status);
 
-        // A remote job finishing may be the last one — recompute the run status.
-        await aggregator.RecomputeAsync(jobRun.RunId);
+        // A remote job finishing may release dependents or finalize the run.
+        await aggregator.OnJobRunTerminalAsync(jobRun);
     }
 
     /// <summary>Requeues job runs that were running on an agent that went offline.</summary>

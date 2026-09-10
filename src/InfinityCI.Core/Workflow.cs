@@ -1,6 +1,7 @@
 namespace InfinityCI.Core;
 
-/// <summary>A workflow definition parsed from YAML: named jobs that run in parallel.</summary>
+/// <summary>A workflow definition parsed from YAML: named jobs that run in parallel,
+/// optionally gated by <c>needs</c> dependencies (a DAG).</summary>
 public sealed class Workflow
 {
     public required string Name { get; init; }
@@ -12,6 +13,7 @@ public sealed class WorkflowJob
 {
     /// <summary>"local" (default) | "agent" | "agent:&lt;label&gt;"</summary>
     public string RunsOn { get; init; } = "local";
+    public IReadOnlyList<string> Needs { get; init; } = [];
     public Dictionary<string, string> Environment { get; init; } = new(StringComparer.OrdinalIgnoreCase);
     public required IReadOnlyList<JobStep> Steps { get; init; }
 

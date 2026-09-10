@@ -33,7 +33,7 @@ public static class WorkflowYaml
         }
 
         if (dto is null || string.IsNullOrWhiteSpace(dto.Name))
-            throw new WorkflowYamlException("Workflow 'name' is required.");
+            throw new WorkflowYamlException($"Workflow 'name' is required.");
 
         Dictionary<string, WorkflowJob> jobs;
         if (dto.Jobs is { Count: > 0 })
@@ -45,6 +45,7 @@ public static class WorkflowYaml
                     throw new WorkflowYamlException($"Job '{key}' is empty.");
                 jobs[key] = ToJob(jobDto, $"Job '{key}'");
             }
+            ValidateNeeds(jobs);
         }
         else if (dto.Steps is { Count: > 0 })
         {
@@ -96,9 +97,47 @@ public static class WorkflowYaml
         return new WorkflowJob
         {
             RunsOn = string.IsNullOrWhiteSpace(dto.RunsOn) ? "local" : dto.RunsOn.Trim(),
+            Needs = dto.Needs ?? [],
             Environment = dto.Env ?? new Dictionary<string, string>(),
             Steps = steps,
         };
+    }
+
+    /// <summary>Needs must reference existing jobs and must not form cycles.</summary>
+    private static void ValidateNeeds(Dictionary<string, WorkflowJob> jobs)
+    {
+        foreach (var (key, job) in jobs)
+        {
+            foreach (var need in job.Needs)
+            {
+                if (need.Equals(key, StringComparison.OrdinalIgnoreCase))
+                    throw new WorkflowYamlException($"Job '{key}' cannot depend on itself.");
+                if (!jobs.ContainsKey(need))
+                    throw new WorkflowYamlException($"Job '{key}' needs unknown job '{need}'.");
+            }
+        }
+
+        const int Unvisited = 0, Visiting = 1, Done = 2;
+        var state = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var key in jobs.Keys)
+        {
+            Visit(key);
+        }
+
+        void Visit(string key)
+        {
+            switch (state.GetValueOrDefault(key))
+            {
+                case Visiting:
+                    throw new WorkflowYamlException($"Job dependency cycle detected involving '{key}'.");
+                case Done:
+                    return;
+            }
+            state[key] = Visiting;
+            foreach (var need in jobs[key].Needs)
+                Visit(need);
+            state[key] = Done;
+        }
     }
 
     private sealed class WorkflowYamlDto
@@ -114,6 +153,7 @@ public static class WorkflowYaml
     private sealed class JobDto
     {
         public string? RunsOn { get; set; }
+        public List<string>? Needs { get; set; }
         public Dictionary<string, string>? Env { get; set; }
         public List<StepDto>? Steps { get; set; }
     }

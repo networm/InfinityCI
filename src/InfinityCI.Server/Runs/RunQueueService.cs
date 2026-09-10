@@ -21,16 +21,13 @@ public sealed class RunQueueService(
     AgentRegistry agentRegistry,
     RunAggregator aggregator,
     JobRunExecutor executor,
+    LocalJobRunQueue localQueue,
     IServiceScopeFactory scopeFactory,
     ILogger<RunQueueService> logger) : BackgroundService
 {
     private readonly CiServerOptions _options = optionsAccessor.Value;
     private readonly JobRunExecutor _executor = executor;
-    private readonly Channel<JobRun> _localQueue = Channel.CreateUnbounded<JobRun>(new UnboundedChannelOptions
-    {
-        SingleReader = false,
-        SingleWriter = false,
-    });
+    private readonly LocalJobRunQueue _localQueue = localQueue;
     private readonly ConcurrentDictionary<long, CancellationTokenSource> _active = new();
     private readonly TaskCompletionSource _recoveryCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -63,12 +60,15 @@ public sealed class RunQueueService(
                 RunId = run.Id,
                 JobKey = jobKey,
                 RunsOn = job.RunsOn,
+                Needs = job.Needs.ToList(),
                 Status = JobRunStatus.Queued,
                 CreatedAt = DateTimeOffset.UtcNow,
                 Steps = job.Steps.Select(s => new JobStepResult { Name = s.Name, Status = JobRunStatus.Pending }).ToList(),
             };
             await repo.AddJobRunAsync(jobRun, ct);
-            Enqueue(jobRun, job);
+            // Needs-gated jobs stay Queued until the aggregator dispatches them.
+            if (job.Needs.Count == 0)
+                Enqueue(jobRun, job);
             await events.PublishJobRunUpdatedAsync(jobRun);
         }
 
@@ -89,7 +89,7 @@ public sealed class RunQueueService(
         }
         else
         {
-            _localQueue.Writer.TryWrite(jobRun);
+            _localQueue.TryWrite(jobRun);
         }
     }
 
@@ -122,7 +122,7 @@ public sealed class RunQueueService(
             await logStore.AppendAndPublishAsync(events, jobRun.RunId, jobRun.JobKey, 0, "[server] job cancelled while queued.");
         }
 
-        await aggregator.RecomputeAsync(runId);
+        await aggregator.EvaluateRunAsync(runId);
         return hadOpen;
     }
 
@@ -138,7 +138,7 @@ public sealed class RunQueueService(
 
     private async Task WorkerLoopAsync(CancellationToken stoppingToken)
     {
-        await foreach (var channelJobRun in _localQueue.Reader.ReadAllAsync(stoppingToken))
+        await foreach (var channelJobRun in _localQueue.ReadAllAsync(stoppingToken))
         {
             // The channel copy can be stale (e.g. cancelled while queued) — the DB is authoritative.
             JobRun? jobRun;
@@ -187,7 +187,7 @@ public sealed class RunQueueService(
                 cts.Dispose();
             }
 
-            await aggregator.RecomputeAsync(jobRun.RunId);
+            await aggregator.OnJobRunTerminalAsync(jobRun);
         }
     }
 
@@ -215,6 +215,7 @@ public sealed class RunQueueService(
         }
 
         var unfinished = await repo.ListUnfinishedJobRunsAsync(ct);
+        var affectedRuns = new HashSet<long>();
 
         foreach (var jobRun in unfinished)
         {
@@ -233,11 +234,12 @@ public sealed class RunQueueService(
             await events.PublishJobRunUpdatedAsync(jobRun);
             await logStore.AppendAndPublishAsync(events, jobRun.RunId, jobRun.JobKey, 0,
                 wasRunning ? "[server] server restarted while the job was running; requeued." : "[server] requeued after server restart.");
-
-            var job = await ResolveJobAsync(jobRun, ct);
-            if (job is not null)
-                Enqueue(jobRun, job);
+            affectedRuns.Add(jobRun.RunId);
         }
+
+        // Needs-aware dispatch: ready jobs enqueue, skip cascades apply, runs recompute.
+        foreach (var runId in affectedRuns)
+            await aggregator.EvaluateRunAsync(runId);
     }
 }
 

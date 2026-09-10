@@ -50,6 +50,9 @@ public sealed class JobRun
     public required string JobKey { get; set; }
     public required string RunsOn { get; set; }     // "local" | "agent" | "agent:<label>"
     public string? AgentId { get; set; }
+
+    /// <summary>Job keys this job waits for (GitHub `needs`); persisted as JSON in <see cref="NeedsJson"/>.</summary>
+    public List<string> Needs { get; set; } = [];
     public JobRunStatus Status { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? StartedAt { get; set; }
@@ -66,7 +69,11 @@ public sealed class JobRun
     [JsonIgnore]
     public string StepsJson { get; set; } = "[]";
 
-    public bool IsTerminal => Status is JobRunStatus.Success or JobRunStatus.Failed or JobRunStatus.Cancelled;
+    /// <summary>EF-mapped JSON mirror of <see cref="Needs"/> (not part of the public API).</summary>
+    [JsonIgnore]
+    public string NeedsJson { get; set; } = "[]";
+
+    public bool IsTerminal => Status is JobRunStatus.Success or JobRunStatus.Failed or JobRunStatus.Cancelled or JobRunStatus.Skipped;
 }
 
 public sealed class JobStepResult

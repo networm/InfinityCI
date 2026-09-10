@@ -44,7 +44,7 @@ public sealed class RunRepository(CiDbContext db)
         var ids = runIds.ToArray();
         var jobRuns = await db.JobRuns.AsNoTracking().Where(j => ids.Contains(j.RunId)).OrderBy(j => j.Id).ToListAsync(ct);
         foreach (var jobRun in jobRuns)
-            jobRun.Steps = DeserializeSteps(jobRun.StepsJson);
+            Restore(jobRun);
         return jobRuns.GroupBy(j => j.RunId).ToDictionary(g => g.Key, g => g.ToList());
     }
 
@@ -54,6 +54,7 @@ public sealed class RunRepository(CiDbContext db)
     {
         jobRun.Version = 1;
         jobRun.StepsJson = JsonSerializer.Serialize(jobRun.Steps, JsonOptions);
+        jobRun.NeedsJson = JsonSerializer.Serialize(jobRun.Needs, JsonOptions);
         db.JobRuns.Add(jobRun);
         await db.SaveChangesAsync(ct);
         return jobRun;
@@ -71,15 +72,21 @@ public sealed class RunRepository(CiDbContext db)
     {
         var jobRun = await db.JobRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
         if (jobRun is not null)
-            jobRun.Steps = DeserializeSteps(jobRun.StepsJson);
+            Restore(jobRun);
         return jobRun;
+    }
+
+    private void Restore(JobRun jobRun)
+    {
+        jobRun.Steps = DeserializeSteps(jobRun.StepsJson);
+        jobRun.Needs = JsonSerializer.Deserialize<List<string>>(jobRun.NeedsJson, JsonOptions) ?? [];
     }
 
     public async Task<List<JobRun>> GetJobRunsAsync(long runId, CancellationToken ct = default)
     {
         var jobRuns = await db.JobRuns.AsNoTracking().Where(x => x.RunId == runId).OrderBy(x => x.Id).ToListAsync(ct);
         foreach (var jobRun in jobRuns)
-            jobRun.Steps = DeserializeSteps(jobRun.StepsJson);
+            Restore(jobRun);
         return jobRuns;
     }
 
@@ -89,7 +96,7 @@ public sealed class RunRepository(CiDbContext db)
             .Where(x => x.Status == JobRunStatus.Queued || x.Status == JobRunStatus.Running)
             .ToListAsync(ct);
         foreach (var jobRun in jobRuns)
-            jobRun.Steps = DeserializeSteps(jobRun.StepsJson);
+            Restore(jobRun);
         return jobRuns;
     }
 

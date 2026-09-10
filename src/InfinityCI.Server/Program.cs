@@ -83,6 +83,7 @@ builder.Services.AddSingleton<RemoteBuildCoordinator>();
 builder.Services.AddHostedService<AgentLeaseMonitor>();
 
 // Run engine.
+builder.Services.AddSingleton<LocalJobRunQueue>();
 builder.Services.AddSingleton<RunAggregator>();
 builder.Services.AddSingleton<JobRunExecutor>();
 
