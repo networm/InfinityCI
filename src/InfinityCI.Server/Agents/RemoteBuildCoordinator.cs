@@ -17,6 +17,7 @@ public sealed class RemoteBuildCoordinator(
     JobLogStore logStore,
     RunEvents events,
     AgentRegistry registry,
+    RunAggregator aggregator,
     ILogger<RemoteBuildCoordinator> logger)
 {
     public Task PublishAgentsChangedAsync() => registry.PublishChangedAsync();
@@ -163,6 +164,9 @@ public sealed class RemoteBuildCoordinator(
         await logStore.AppendAndPublishAsync(events, jobRun.RunId, jobRun.JobKey, 0, $"[server] job finished: {status}.");
         await events.PublishJobRunUpdatedAsync(jobRun);
         logger.LogInformation("Remote job run {JobRunId} finished: {Status}", jobRun.Id, status);
+
+        // A remote job finishing may be the last one — recompute the run status.
+        await aggregator.RecomputeAsync(jobRun.RunId);
     }
 
     /// <summary>Requeues job runs that were running on an agent that went offline.</summary>

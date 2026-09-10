@@ -72,7 +72,8 @@ public sealed class RunQueueService(
             await events.PublishJobRunUpdatedAsync(jobRun);
         }
 
-        await repo.SaveRunTransitionAsync(run, ct);
+        // NOTE: no trailing save here — fast jobs may already have finalized the
+        // run via the aggregator; writing our in-memory copy would stomp it.
         await events.PublishRunUpdatedAsync(run);
         logger.LogInformation("Run {RunId} for workflow {Workflow} triggered by {User} with {Jobs} parallel job(s)",
             run.Id, workflow.Name, triggeredBy, workflow.Jobs.Count);
@@ -204,6 +205,15 @@ public sealed class RunQueueService(
     {
         using var scope = scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<RunRepository>();
+
+        // Heal runs stuck non-terminal despite terminal job runs (e.g. pre-fix bugs).
+        foreach (var staleRun in await repo.ListNonTerminalRunsWithTerminalJobsAsync(ct))
+        {
+            var jobRuns = await repo.GetJobRunsAsync(staleRun.Id, ct);
+            if (jobRuns.Count > 0 && jobRuns.All(j => j.IsTerminal))
+                await aggregator.RecomputeAsync(staleRun.Id);
+        }
+
         var unfinished = await repo.ListUnfinishedJobRunsAsync(ct);
 
         foreach (var jobRun in unfinished)
