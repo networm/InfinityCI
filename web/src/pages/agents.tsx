@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import type { HubConnection } from "@microsoft/signalr";
-import { Copy, Power, Trash2 } from "lucide-react";
+import { Copy, KeyRound, Power, Trash2 } from "lucide-react";
 
 import { StatusIcon } from "@/components/status-icon";
 import { api } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import type { CredentialInfo } from "@/lib/types";
 import { getCiHub } from "@/lib/signalr";
 import type { AgentInfo } from "@/lib/types";
 
@@ -227,6 +228,9 @@ export function AgentsPage() {
         )}
       </section>
 
+      {/* Git credentials */}
+      <CredentialsSection onMessage={setMessage} />
+
       {/* Enrolled agents (persistent) */}
       <section>
         <h2 className="mb-2 text-sm font-medium text-[#57606a]">已注册 Agent</h2>
@@ -309,5 +313,124 @@ export function AgentsPage() {
         )}
       </section>
     </div>
+  );
+}
+
+
+function CredentialsSection({ onMessage }: { onMessage: (message: string) => void }) {
+  const [credentials, setCredentials] = useState<CredentialInfo[]>([]);
+  const [form, setForm] = useState<{ name: string; username: string; secret: string }>({
+    name: "",
+    username: "",
+    secret: "",
+  });
+
+  const reload = useCallback(async () => {
+    try {
+      setCredentials(await api.credentials());
+    } catch {
+      setCredentials([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  return (
+    <section>
+      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-[#57606a]">
+        <KeyRound size={13} />
+        凭据管理（Git SCM，管理员）
+      </h2>
+      <div className="rounded-md border border-[#d0d7de] bg-white p-4">
+        <div className="mb-3 flex flex-wrap items-end gap-3">
+          <label className="text-sm">
+            <span className="mb-1 block text-xs font-medium text-[#57606a]">名称</span>
+            <input
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="deploy-key"
+              className="w-40 rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da]"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block text-xs font-medium text-[#57606a]">用户名 / Token</span>
+            <input
+              value={form.username}
+              onChange={(e) => setForm({ ...form, username: e.target.value })}
+              placeholder="git"
+              className="w-44 rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da]"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block text-xs font-medium text-[#57606a]">密码 / Token</span>
+            <input
+              type="password"
+              value={form.secret}
+              onChange={(e) => setForm({ ...form, secret: e.target.value })}
+              className="w-52 rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da]"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={!form.name || !form.username}
+            onClick={async () => {
+              try {
+                await api.saveCredential(form.name, form.username, form.secret);
+                setForm({ name: "", username: "", secret: "" });
+                await reload();
+              } catch (e) {
+                onMessage(e instanceof Error ? e.message : String(e));
+              }
+            }}
+            className="rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
+          >
+            保存凭据
+          </button>
+        </div>
+        {credentials.length === 0 ? (
+          <div className="text-sm text-[#57606a]">尚无凭据。公开仓库无需凭据。</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[#d0d7de] text-left text-xs text-[#57606a]">
+                <th className="py-1.5">名称</th>
+                <th className="py-1.5">用户名</th>
+                <th className="py-1.5">创建时间</th>
+                <th className="py-1.5 text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {credentials.map((credential) => (
+                <tr key={credential.id} className="border-t border-[#eaeef2]">
+                  <td className="py-2 font-medium">{credential.name}</td>
+                  <td className="py-2 text-[#57606a]">{credential.username}</td>
+                  <td className="py-2 text-[#57606a]">{formatDateTime(credential.createdUtc)}</td>
+                  <td className="py-2 text-right">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!window.confirm(`删除凭据「${credential.name}」？`)) return;
+                        try {
+                          await api.deleteCredential(credential.name);
+                          await reload();
+                        } catch (e) {
+                          onMessage(e instanceof Error ? e.message : String(e));
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs text-[#cf222e] hover:bg-[#ffebe9]"
+                    >
+                      <Trash2 size={12} />
+                      删除
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </section>
   );
 }

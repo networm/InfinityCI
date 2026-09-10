@@ -1,6 +1,8 @@
 import type {
   AgentEnrollment,
   AgentInfo,
+  CredentialInfo,
+  DashboardItem,
   EnrolledAgent,
   LogLine,
   Me,
@@ -36,6 +38,15 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   me: () => request<Me>("/api/me"),
+  dashboard: () => request<DashboardItem[]>("/api/dashboard"),
+  toggleFavorite: (name: string) =>
+    request<{ isFavorite: boolean }>(`/api/jobs/${encodeURIComponent(name)}/favorite`, { method: "POST" }),
+
+  credentials: () => request<CredentialInfo[]>("/api/credentials"),
+  saveCredential: (name: string, username: string, secret: string) =>
+    request<{ name: string }>("/api/credentials", { method: "POST", body: JSON.stringify({ name, username, secret }) }),
+  deleteCredential: (name: string) =>
+    request<unknown>(`/api/credentials/${encodeURIComponent(name)}`, { method: "DELETE" }),
   login: (username: string, password: string) =>
     request<Me>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
   logout: () => request<unknown>("/api/auth/logout", { method: "POST" }),

@@ -4,14 +4,21 @@ import { Plus, Trash2 } from "lucide-react";
 import { dump as yamlDump, load as yamlLoad } from "js-yaml";
 
 import { api } from "@/lib/api";
-import type { EditorJob, EditorStep, EditorWorkflow } from "@/lib/types";
+import type { EditorJob, EditorScm, EditorStep, EditorWorkflow } from "@/lib/types";
 
 function modelToYaml(workflow: EditorWorkflow): string {
   const doc: Record<string, unknown> = {
     name: workflow.name.trim(),
     project: workflow.project.trim() || "Default",
-    jobs: {} as Record<string, unknown>,
   };
+  if (workflow.scm && workflow.scm.url.trim()) {
+    const scm: Record<string, unknown> = { url: workflow.scm.url.trim() };
+    if (workflow.scm.branch.trim()) scm.branch = workflow.scm.branch.trim();
+    if (workflow.scm.ref.trim()) scm.ref = workflow.scm.ref.trim();
+    if (workflow.scm.credentials.trim()) scm.credentials = workflow.scm.credentials.trim();
+    doc.scm = scm;
+  }
+  doc.jobs = {} as Record<string, unknown>;
   const jobs = doc.jobs as Record<string, unknown>;
   for (const job of workflow.jobs) {
     const jobDoc: Record<string, unknown> = {
@@ -46,7 +53,11 @@ function yamlToModel(text: string): EditorWorkflow {
       continueOnError: step?.continue_on_error ?? false,
     })),
   }));
-  return { name: doc.name, project: doc.project ?? "Default", jobs };
+  const scmDoc = (doc as { scm?: { url?: string; branch?: string; ref?: string; credentials?: string } }).scm;
+  const scm: EditorScm | null = scmDoc
+    ? { url: scmDoc.url ?? "", branch: scmDoc.branch ?? "", ref: scmDoc.ref ?? "", credentials: scmDoc.credentials ?? "" }
+    : null;
+  return { name: doc.name, project: doc.project ?? "Default", scm, jobs };
 }
 
 function emptyStep(): EditorStep {
@@ -64,6 +75,7 @@ export function JobEditorPage() {
   const [workflow, setWorkflow] = useState<EditorWorkflow>({
     name: "",
     project: "Default",
+    scm: null,
     jobs: [{ key: "build", runsOn: "local", steps: [emptyStep()] }],
   });
   const [mode, setMode] = useState<"form" | "yaml">("form");
@@ -179,6 +191,56 @@ export function JobEditorPage() {
                 className="w-full rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da]"
               />
             </label>
+          </div>
+
+          <div className="rounded-md border border-[#d0d7de] bg-white p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-medium">Git 源码（SCM，可选）</span>
+              <button
+                type="button"
+                onClick={() => setWorkflow({ ...workflow, scm: workflow.scm ? null : { url: "", branch: "", ref: "", credentials: "" } })}
+                className="text-xs text-[#0969da] hover:underline"
+              >
+                {workflow.scm ? "移除" : "添加"}
+              </button>
+            </div>
+            {workflow.scm && (
+              <div className="grid gap-2 sm:grid-cols-4">
+                <label className="text-xs sm:col-span-2">
+                  <span className="mb-1 block font-medium text-[#57606a]">仓库 URL</span>
+                  <input
+                    value={workflow.scm.url}
+                    onChange={(e) => setWorkflow({ ...workflow, scm: { ...workflow.scm!, url: e.target.value } })}
+                    placeholder="https://... 或本地路径"
+                    className="w-full rounded-md border border-[#d0d7de] px-2 py-1 font-mono text-xs outline-none focus:border-[#0969da]"
+                  />
+                </label>
+                <label className="text-xs">
+                  <span className="mb-1 block font-medium text-[#57606a]">分支</span>
+                  <input
+                    value={workflow.scm.branch}
+                    onChange={(e) => setWorkflow({ ...workflow, scm: { ...workflow.scm!, branch: e.target.value } })}
+                    className="w-full rounded-md border border-[#d0d7de] px-2 py-1 text-xs outline-none focus:border-[#0969da]"
+                  />
+                </label>
+                <label className="text-xs">
+                  <span className="mb-1 block font-medium text-[#57606a]">Ref（tag/commit）</span>
+                  <input
+                    value={workflow.scm.ref}
+                    onChange={(e) => setWorkflow({ ...workflow, scm: { ...workflow.scm!, ref: e.target.value } })}
+                    className="w-full rounded-md border border-[#d0d7de] px-2 py-1 text-xs outline-none focus:border-[#0969da]"
+                  />
+                </label>
+                <label className="text-xs sm:col-span-4">
+                  <span className="mb-1 block font-medium text-[#57606a]">凭据名称（Agents 页下方「凭据管理」创建）</span>
+                  <input
+                    value={workflow.scm.credentials}
+                    onChange={(e) => setWorkflow({ ...workflow, scm: { ...workflow.scm!, credentials: e.target.value } })}
+                    className="w-full rounded-md border border-[#d0d7de] px-2 py-1 text-xs outline-none focus:border-[#0969da]"
+                  />
+                </label>
+              </div>
+            )}
           </div>
 
           {workflow.jobs.map((job, jobIndex) => (

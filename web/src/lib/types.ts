@@ -74,11 +74,38 @@ export interface WorkflowInfo {
   name: string;
   project: string;
   jobs: WorkflowJobInfo[];
+  scm?: { url: string; branch: string | null; ref: string | null; credentials: string | null } | null;
 }
 
 export interface Me {
   username: string;
   role: UserRole;
+}
+
+export interface DashboardItem {
+  name: string;
+  project: string;
+  isFavorite: boolean;
+  branch: string | null;
+  commitSha: string | null;
+  commitMessage: string | null;
+  commitAuthor: string | null;
+  commitWhen: string | null;
+  lastRun: Run | null;
+}
+
+export interface CredentialInfo {
+  id: number;
+  name: string;
+  username: string;
+  createdUtc: string;
+}
+
+export interface EditorScm {
+  url: string;
+  branch: string;
+  ref: string;
+  credentials: string;
 }
 
 export interface ProjectInfo {
@@ -147,5 +174,6 @@ export interface EditorJob {
 export interface EditorWorkflow {
   name: string;
   project: string;
+  scm: EditorScm | null;
   jobs: EditorJob[];
 }
