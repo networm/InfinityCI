@@ -18,7 +18,7 @@ public class WorkflowStoreTests : IDisposable
         Directory.CreateDirectory(_options.JobsDir);
     }
 
-    private WorkflowStore CreateStore() => new(Options.Create(_options), NullLogger<WorkflowStore>.Instance);
+    private WorkflowStore CreateStore() => new(Options.Create(_options), new WorkflowGitStore(Options.Create(_options), NullLogger<WorkflowGitStore>.Instance), NullLogger<WorkflowStore>.Instance);
 
     private void WriteWorkflow(string fileName, string yaml) =>
         File.WriteAllText(Path.Combine(_options.JobsDir, fileName), yaml);

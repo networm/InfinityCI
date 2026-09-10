@@ -36,8 +36,22 @@ public sealed class RunRepository(CiDbContext db)
         return run;
     }
 
-    public async Task<List<Run>> ListRunsAsync(int skip, int take, CancellationToken ct = default) =>
-        await db.Runs.AsNoTracking().OrderByDescending(x => x.Id).Skip(skip).Take(take).ToListAsync(ct);
+    public async Task<List<Run>> ListRunsAsync(int skip, int take, string? workflowName = null, CancellationToken ct = default)
+    {
+        var query = db.Runs.AsNoTracking().OrderByDescending(x => x.Id).AsQueryable();
+        if (workflowName is not null)
+            query = query.Where(x => x.WorkflowName == workflowName);
+        return await query.Skip(skip).Take(take).ToListAsync(ct);
+    }
+
+    /// <summary>Total run count for pagination, optionally scoped to one workflow.</summary>
+    public async Task<int> CountRunsAsync(string? workflowName = null, CancellationToken ct = default)
+    {
+        var query = db.Runs.AsNoTracking().AsQueryable();
+        if (workflowName is not null)
+            query = query.Where(x => x.WorkflowName == workflowName);
+        return await query.CountAsync(ct);
+    }
 
     public async Task<Dictionary<long, List<JobRun>>> GetJobRunsForAsync(IEnumerable<long> runIds, CancellationToken ct = default)
     {

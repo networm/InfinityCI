@@ -33,7 +33,7 @@ public class NeedsSchedulingTests : IDisposable
         services.AddScoped<RunRepository>();
         _provider = services.BuildServiceProvider();
 
-        _workflowStore = new WorkflowStore(Options.Create(_options), NullLogger<WorkflowStore>.Instance);
+        _workflowStore = new WorkflowStore(Options.Create(_options), new WorkflowGitStore(Options.Create(_options), NullLogger<WorkflowGitStore>.Instance), NullLogger<WorkflowStore>.Instance);
         var logStore = new JobLogStore(_options);
         var registry = new AgentRegistry(NullLogger<AgentRegistry>.Instance);
         var localQueue = new LocalJobRunQueue();

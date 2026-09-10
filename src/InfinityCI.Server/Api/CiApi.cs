@@ -286,9 +286,22 @@ public static class CiApi
                 return Results.NotFound(new { message = $"Unknown workflow '{name}'." });
             }
         }).RequireAuthorization();
-    }
 
-    // -- runs --
+        app.MapGet("/api/jobs/{name}/runs", async (string name, RunRepository repo, WorkflowStore store, CiDbContext db, ClaimsPrincipal user, int skip = 0, int take = 20) =>
+        {
+            if (!await CanSeeWorkflowAsync(store, db, user, name))
+                return Results.NotFound(new { message = $"Unknown workflow '{name}'." });
+            take = take is < 1 or > 100 ? 20 : take;
+            var runs = await repo.ListRunsAsync(Math.Max(0, skip), take, name);
+            var total = await repo.CountRunsAsync(name);
+            var jobs = await repo.GetJobRunsForAsync(runs.Select(r => r.Id));
+            return Results.Ok(new
+            {
+                total,
+                items = runs.Select(r => new RunsPageItem(r, jobs.GetValueOrDefault(r.Id, []))),
+            });
+        }).RequireAuthorization();
+    }
 
     private static void MapRuns(IEndpointRouteBuilder app)
     {
