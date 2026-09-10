@@ -55,6 +55,14 @@ message JobFinished {
   optional int32 exit_code = 5;
 }
 
+message ScmCheckout {
+  int64 run_id = 1;
+  int64 job_run_id = 2;
+  string job_key = 3;
+  string branch = 4;
+  string commit_sha = 5;
+}
+
 message AgentToMaster {
   oneof payload {
     AgentRegistration register = 1;
@@ -63,6 +71,7 @@ message AgentToMaster {
     LogChunk log_chunk = 4;
     StepUpdate step_update = 5;
     JobFinished job_finished = 6;
+    ScmCheckout scm_checkout = 7;
   }
 }
 
@@ -72,6 +81,11 @@ message JobAssignment {
   string job_key = 3;
   string workflow_name = 4;
   string workflow_yaml = 5;       // full workflow YAML; the agent runs jobs[job_key]
+  string scm_url = 6;             // present when the workflow declares an scm block
+  string scm_branch = 7;
+  string scm_ref = 8;
+  string scm_username = 9;        // resolved credential (empty when anonymous)
+  string scm_password = 10;
 }
 
 message MasterToAgent {

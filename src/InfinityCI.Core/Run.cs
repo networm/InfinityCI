@@ -51,6 +51,12 @@ public sealed class JobRun
     public required string RunsOn { get; set; }     // "local" | "agent" | "agent:<label>"
     public string? AgentId { get; set; }
 
+    /// <summary>Source branch checked out by the SCM step (null when the workflow has no scm block).</summary>
+    public string? SourceBranch { get; set; }
+
+    /// <summary>Exact commit checked out by the SCM step.</summary>
+    public string? CommitSha { get; set; }
+
     /// <summary>Job keys this job waits for (GitHub `needs`); persisted as JSON in <see cref="NeedsJson"/>.</summary>
     public List<string> Needs { get; set; } = [];
     public JobRunStatus Status { get; set; }

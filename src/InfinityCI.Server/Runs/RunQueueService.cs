@@ -170,7 +170,7 @@ public sealed class RunQueueService(
             if (jobRun is null)
                 continue;
 
-            var job = await ResolveJobAsync(jobRun, stoppingToken);
+            var (job, workflowScm) = await ResolveJobAsync(jobRun, stoppingToken);
             if (job is null)
             {
                 jobRun.Status = JobRunStatus.Failed;
@@ -190,7 +190,7 @@ public sealed class RunQueueService(
             _active[jobRun.Id] = cts;
             try
             {
-                await _executor.ExecuteAsync(jobRun, job, cts.Token);
+                await _executor.ExecuteAsync(jobRun, job, workflowScm, cts.Token);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -210,13 +210,14 @@ public sealed class RunQueueService(
         }
     }
 
-    private async Task<WorkflowJob?> ResolveJobAsync(JobRun jobRun, CancellationToken ct)
+    private async Task<(WorkflowJob?, ScmConfig?)> ResolveJobAsync(JobRun jobRun, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var run = await scope.ServiceProvider.GetRequiredService<RunRepository>().GetRunAsync(jobRun.RunId, ct);
         if (run is null)
-            return null;
-        return workflowStore.TryGet(run.WorkflowName)?.Jobs.GetValueOrDefault(jobRun.JobKey);
+            return (null, null);
+        var workflow = workflowStore.TryGet(run.WorkflowName);
+        return (workflow?.Jobs.GetValueOrDefault(jobRun.JobKey), workflow?.Scm);
     }
 
     /// <summary>Job runs left unfinished by a previous server run are requeued.</summary>

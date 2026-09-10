@@ -37,9 +37,37 @@ public sealed class RemoteBuildRunner(
             var intro = $"[agent {Environment.MachineName}] job '{jobKey}' of run {assignment.RunId} started.";
             await SendLog(assignment.RunId, jobRunId, jobKey, 0, 0, intro);
 
+            var cursor = new LineCursor(1); // line 0 = intro
+
+            // SCM checkout: mirror the master-side executor behavior.
+            if (assignment.ScmUrl is { Length: > 0 } scmUrl)
+            {
+                var scm = new ScmConfig
+                {
+                    Url = scmUrl,
+                    Branch = NullIfEmpty(assignment.ScmBranch),
+                    Ref = NullIfEmpty(assignment.ScmRef),
+                };
+                var credential = string.IsNullOrEmpty(assignment.ScmUsername)
+                    ? null
+                    : new GitCredential(assignment.ScmUsername, assignment.ScmPassword);
+                var checkout = GitSourceFetcher.Fetch(scm, workspace, credential,
+                    line => SendLog(assignment.RunId, jobRunId, jobKey, 0, cursor.Take(), line).GetAwaiter().GetResult());
+                await outgoing.SendAsync(new AgentToMaster
+                {
+                    ScmCheckout = new ScmCheckout
+                    {
+                        RunId = assignment.RunId,
+                        JobRunId = jobRunId,
+                        JobKey = jobKey,
+                        Branch = checkout.Branch,
+                        CommitSha = checkout.CommitSha,
+                    },
+                });
+            }
+
             var overall = JobRunStatus.Success;
             var lastExitCode = 0;
-            var cursor = new LineCursor(1); // line 0 = intro
             for (var i = 0; i < job.Steps.Count; i++)
             {
                 var step = job.Steps[i];
@@ -113,6 +141,8 @@ public sealed class RemoteBuildRunner(
             cts.Dispose();
         }
     }
+
+    private static string? NullIfEmpty(string value) => string.IsNullOrEmpty(value) ? null : value;
 
     public bool TryCancel(long jobRunId)
     {

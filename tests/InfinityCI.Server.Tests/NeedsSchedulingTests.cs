@@ -1,6 +1,7 @@
 using InfinityCI.Core;
 using InfinityCI.Server;
 using InfinityCI.Server.Agents;
+using InfinityCI.Server.Auth;
 using InfinityCI.Server.Jobs;
 using InfinityCI.Server.Runs;
 using InfinityCI.Server.Storage;
@@ -44,7 +45,9 @@ public class NeedsSchedulingTests : IDisposable
             registry,
             localQueue,
             NullLogger<RunAggregator>.Instance);
-        var executor = new JobRunExecutor(Options.Create(_options), logStore, _events, _provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<JobRunExecutor>.Instance);
+        var credentialStore = new CredentialStore(_provider.GetRequiredService<IServiceScopeFactory>(),
+            new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider().CreateProtector("test"));
+        var executor = new JobRunExecutor(Options.Create(_options), logStore, _events, credentialStore, _provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<JobRunExecutor>.Instance);
         _queue = new RunQueueService(
             Options.Create(_options),
             _workflowStore,

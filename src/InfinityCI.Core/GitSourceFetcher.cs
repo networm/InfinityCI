@@ -37,8 +37,7 @@ public static class GitSourceFetcher
         }
 
         using var repository = new Repository(workspace);
-        var commitSha = CheckoutTarget(repository, scm, log);
-        return new CheckoutResult(commitSha, DescribeBranch(repository));
+        return CheckoutTarget(repository, scm, log);
     }
 
     private static void Clone(ScmConfig scm, string workspace, GitCredential? credential)
@@ -53,8 +52,8 @@ public static class GitSourceFetcher
         Repository.Clone(scm.Url, workspace, options);
     }
 
-    /// <summary>Checks out the configured ref/branch and returns the commit sha.</summary>
-    private static string CheckoutTarget(Repository repo, ScmConfig scm, Action<string>? log)
+    /// <summary>Checks out the configured ref/branch and reports commit + branch name.</summary>
+    private static CheckoutResult CheckoutTarget(Repository repo, ScmConfig scm, Action<string>? log)
     {
         if (scm.Ref is { } reference)
         {
@@ -62,7 +61,7 @@ public static class GitSourceFetcher
                 ?? throw new InvalidOperationException($"Ref '{reference}' not found in the source repository.");
             Commands.Checkout(repo, commit, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
             log?.Invoke($"[server] checked out {commit.Sha[..10]} (ref {reference}).");
-            return commit.Sha;
+            return new CheckoutResult(commit.Sha, $"ref {reference}");
         }
 
         if (scm.Branch is { } branchName)
@@ -73,27 +72,44 @@ public static class GitSourceFetcher
             Commands.Checkout(repo, remoteBranch, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
             var tip = remoteBranch.Tip ?? throw new InvalidOperationException($"Branch '{branchName}' has no commits.");
             log?.Invoke($"[server] checked out {tip.Sha[..10]} on branch {branchName}.");
-            return tip.Sha;
+            return new CheckoutResult(tip.Sha, branchName);
         }
 
         // No branch configured: follow origin's HEAD (fetch updates remote-tracking
         // refs but NOT local branches, so the remote tip is authoritative).
-        // origin/HEAD may be symbolic (→ default branch ref) or direct (→ commit sha).
-        var defaultTip = repo.Refs["refs/remotes/origin/HEAD"] switch
+        var defaultBranch = repo.Refs["refs/remotes/origin/HEAD"] switch
         {
-            SymbolicReference sym when repo.Refs[sym.Target.CanonicalName] is DirectReference d => d.Target as Commit,
-            DirectReference direct => direct.Target as Commit,
+            SymbolicReference sym => repo.Branches[BranchFriendlyName(sym.Target.CanonicalName)],
+            // Direct origin/HEAD: find the remote branch pointing at the same commit.
+            DirectReference direct => repo.Branches
+                .FirstOrDefault(b => b.FriendlyName.StartsWith("origin/", StringComparison.Ordinal)
+                                     && b.Tip is not null && b.Tip.Sha == direct.TargetIdentifier),
             _ => null,
         };
-        defaultTip ??= repo.Head.Tip
-            ?? throw new InvalidOperationException("The source repository has no commits.");
-        Commands.Checkout(repo, defaultTip, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
-        log?.Invoke($"[server] checked out {defaultTip.Sha[..10]} (default branch).");
-        return defaultTip.Sha;
+        var defaultName = defaultBranch is null ? null : BranchStripOrigin(defaultBranch.FriendlyName);
+        if (defaultBranch?.Tip is { } defaultTip)
+        {
+            Commands.Checkout(repo, defaultBranch, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
+            defaultName ??= "default";
+            log?.Invoke($"[server] checked out {defaultTip.Sha[..10]} on branch {defaultName}.");
+            return new CheckoutResult(defaultTip.Sha, defaultName);
+        }
+
+        var head = repo.Head.Tip ?? throw new InvalidOperationException("The source repository has no commits.");
+        Commands.Checkout(repo, head, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
+        log?.Invoke($"[server] checked out {head.Sha[..10]} (default branch).");
+        return new CheckoutResult(head.Sha, "default");
     }
 
-    private static string DescribeBranch(Repository repo) =>
-        repo.Head?.FriendlyName ?? "unknown";
+    private static string BranchFriendlyName(string canonicalName) =>
+        canonicalName.StartsWith("refs/remotes/", StringComparison.Ordinal)
+            ? canonicalName["refs/remotes/".Length..]
+            : canonicalName;
+
+    private static string BranchStripOrigin(string friendlyName) =>
+        friendlyName.StartsWith("origin/", StringComparison.Ordinal)
+            ? friendlyName["origin/".Length..]
+            : friendlyName;
 
     private static FetchOptions FetchOptions(GitCredential? credential) => new()
     {

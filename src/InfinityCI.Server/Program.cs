@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using InfinityCI.Server;
 using InfinityCI.Server.Agents;
+using InfinityCI.Server.Auth;
 using InfinityCI.Server.Api;
 using InfinityCI.Server.Auth;
 using InfinityCI.Server.Hubs;
@@ -71,6 +72,7 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 builder.Services.AddSignalR().AddJsonProtocol(o =>
     o.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
+builder.Services.AddSingleton<CredentialStore>();
 builder.Services.AddSingleton<RunEvents>();
 builder.Services.AddSingleton<JobLogStore>();
 builder.Services.AddSingleton<WorkflowGitStore>();

@@ -29,6 +29,25 @@ public sealed class UserProject
     public Project? Project { get; set; }
 }
 
+/// <summary>A workflow a user pinned to their favorites section.</summary>
+public sealed class UserFavorite
+{
+    public long Id { get; set; }
+    public long UserId { get; set; }
+    public User? User { get; set; }
+    public required string WorkflowName { get; set; }
+}
+
+/// <summary>Named Git credential for private repositories; secret is Data-Protection encrypted.</summary>
+public sealed class StoredCredential
+{
+    public long Id { get; set; }
+    public required string Name { get; set; }
+    public required string Username { get; set; }
+    public required string EncryptedSecret { get; set; }
+    public DateTimeOffset CreatedUtc { get; set; }
+}
+
 /// <summary>Persistent agent record: enrollment + lifecycle (enable/disable).</summary>
 public sealed class AgentRecord
 {

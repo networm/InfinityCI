@@ -67,6 +67,10 @@ public sealed class AgentHubService(
                         await coordinator.ApplyStepUpdateAsync(message.StepUpdate);
                         break;
 
+                    case AgentToMaster.PayloadOneofCase.ScmCheckout when agent is not null:
+                        await coordinator.ApplyScmCheckoutAsync(message.ScmCheckout);
+                        break;
+
                     case AgentToMaster.PayloadOneofCase.JobFinished when agent is not null:
                         await coordinator.FinalizeAsync(message.JobFinished);
                         registry.ClearAssignment(message.JobFinished.JobRunId);

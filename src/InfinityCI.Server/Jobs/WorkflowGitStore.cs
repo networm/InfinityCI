@@ -124,6 +124,20 @@ public sealed class WorkflowGitStore(IOptions<CiServerOptions> optionsAccessor, 
         return File.ReadAllBytes(fullPath);
     }
 
+    /// <summary>Friendly branch name HEAD points at (e.g. "master").</summary>
+    public string? BranchName()
+    {
+        try
+        {
+            using var repo = new Repository(CommitPath()!);
+            return repo.Head?.FriendlyName;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public string? ReadHeadRef()
     {
         var path = CommitPath();

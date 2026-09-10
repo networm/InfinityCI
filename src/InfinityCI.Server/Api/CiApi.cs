@@ -5,6 +5,7 @@ using InfinityCI.Core;
 using InfinityCI.Server.Agents;
 using InfinityCI.Server.Auth;
 using InfinityCI.Server.Jobs;
+using Microsoft.AspNetCore.DataProtection;
 using InfinityCI.Server.Runs;
 using LibGit2Sharp;
 using InfinityCI.Server.Storage;
@@ -24,6 +25,8 @@ public record ProjectRequest(string Name, string? Description);
 public record SaveWorkflowRequest(string Yaml);
 public record EnrollmentRequest(string Name, string[] Labels, int MaxConcurrentBuilds);
 public record RestoreRequest(string Sha);
+public record CredentialRequest(string Name, string Username, string Secret);
+public record FavoriteRequest(bool Favorite);
 public record EnabledRequest(bool Enabled);
 
 public static class CiApi
@@ -32,7 +35,9 @@ public static class CiApi
     {
         MapAuth(app);
         MapAdmin(app);
+        MapCredentials(app);
         MapJobs(app);
+        MapDashboard(app);
         MapRuns(app);
         MapAgents(app);
         MapGitClone(app);
@@ -411,6 +416,108 @@ public static class CiApi
             await db.SaveChangesAsync();
             return Results.Ok();
         }).RequireAuthorization("Admins");
+    }
+
+    // -- credentials (Git SCM) --
+
+    private static void MapCredentials(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/api/credentials", (CredentialStore store) => Results.Ok(store.List()))
+            .RequireAuthorization("Admins");
+
+        app.MapPost("/api/credentials", (CredentialRequest request, CredentialStore store) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Username))
+                return Results.BadRequest(new { message = "Name and username are required." });
+            store.Save(request.Name.Trim(), request.Username, request.Secret ?? "");
+            return Results.Ok(new { name = request.Name.Trim() });
+        }).RequireAuthorization("Admins");
+
+        app.MapDelete("/api/credentials/{name}", (string name, CredentialStore store) =>
+            store.Delete(name) ? Results.Ok() : Results.NotFound()).RequireAuthorization("Admins");
+    }
+
+    // -- dashboard aggregate (home page) --
+
+    public sealed record DashboardItem(
+        string Name,
+        string Project,
+        bool IsFavorite,
+        string? Branch,
+        string? CommitSha,
+        string? CommitMessage,
+        string? CommitAuthor,
+        DateTimeOffset? CommitWhen,
+        Run? LastRun);
+
+    private static void MapDashboard(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/api/dashboard", async (WorkflowStore store, WorkflowGitStore git, RunRepository repo, CiDbContext db, ClaimsPrincipal user) =>
+        {
+            var userId = long.Parse(user.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            var favorites = (await db.UserFavorites.Where(f => f.UserId == userId).Select(f => f.WorkflowName).ToListAsync())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var visible = await VisibleProjectsAsync(user, db);
+
+            var items = new List<DashboardItem>();
+            foreach (var workflow in store.Workflows)
+            {
+                if (visible is not null && !visible.Contains(workflow.Project))
+                    continue;
+                // Prefer real SCM source info from the latest checked-out job run;
+                // fall back to the config repo's branch/last commit.
+                var lastRun = (await repo.ListRunsAsync(0, 1, workflow.Name)).FirstOrDefault();
+                string? branch = null, commitSha = null, commitMessage = null, commitAuthor = null;
+                DateTimeOffset? commitWhen = null;
+                if (lastRun is not null)
+                {
+                    var jobRuns = await repo.GetJobRunsAsync(lastRun.Id);
+                    var checkedOut = jobRuns.FirstOrDefault(j => j.CommitSha is not null);
+                    if (checkedOut is not null)
+                    {
+                        branch = checkedOut.SourceBranch;
+                        commitSha = checkedOut.CommitSha;
+                    }
+                }
+                if (commitSha is null)
+                {
+                    var configCommit = git.History(workflow.Name).FirstOrDefault();
+                    if (configCommit is not null)
+                    {
+                        branch = git.BranchName();
+                        commitSha = configCommit.Sha;
+                        commitMessage = configCommit.Message;
+                        commitAuthor = configCommit.Author;
+                        commitWhen = configCommit.When;
+                    }
+                }
+                items.Add(new DashboardItem(
+                    workflow.Name, workflow.Project,
+                    favorites.Contains(workflow.Name),
+                    branch, commitSha, commitMessage, commitAuthor, commitWhen,
+                    lastRun));
+            }
+            return Results.Ok(items);
+        }).RequireAuthorization();
+
+        app.MapPost("/api/jobs/{name}/favorite", async (string name, CiDbContext db, ClaimsPrincipal user) =>
+        {
+            var userId = long.Parse(user.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            var existing = await db.UserFavorites.FirstOrDefaultAsync(f => f.UserId == userId && f.WorkflowName == name);
+            bool favorite;
+            if (existing is not null)
+            {
+                db.UserFavorites.Remove(existing);
+                favorite = false;
+            }
+            else
+            {
+                db.UserFavorites.Add(new UserFavorite { UserId = userId, WorkflowName = name });
+                favorite = true;
+            }
+            await db.SaveChangesAsync();
+            return Results.Ok(new { isFavorite = favorite });
+        }).RequireAuthorization();
     }
 
     // -- read-only git clone (dumb HTTP protocol) --

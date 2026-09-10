@@ -192,7 +192,7 @@ public sealed record RunResponse(long Id, string WorkflowName, string Status, lo
     public bool IsTerminal => Status is "Success" or "Failed" or "Cancelled";
 }
 public sealed record RunPageResponse(RunResponse Run, List<JobRunResponse> Jobs);
-public sealed record JobRunResponse(long Id, string JobKey, string Status);
+public sealed record JobRunResponse(long Id, string JobKey, string Status, string? SourceBranch, string? CommitSha);
 public sealed record LogPageResponse(long RunId, string JobKey, long NextLine, List<LogLineResponse> Lines);
 public sealed record LogLineResponse(long Line, string TimestampUtc, int StepIndex, string Text);
 public sealed record WorkflowResponse(string Name, string Project);

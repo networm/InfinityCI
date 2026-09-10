@@ -18,6 +18,7 @@ public sealed class RemoteBuildCoordinator(
     RunEvents events,
     AgentRegistry registry,
     RunAggregator aggregator,
+    Auth.CredentialStore credentialStore,
     ILogger<RemoteBuildCoordinator> logger)
 {
     public Task PublishAgentsChangedAsync() => registry.PublishChangedAsync();
@@ -73,17 +74,40 @@ public sealed class RemoteBuildCoordinator(
             await events.PublishJobRunUpdatedAsync(jobRun);
 
             registry.Assign(jobRun.Id, agent.Id);
-            var sent = await registry.TrySendAsync(agent.Id, new MasterToAgent
+            jobRun.AgentId = agent.Id;
+
+            // Resolve SCM + credentials master-side so agents never see the
+            // credential store, only the resolved values for this assignment.
+            InfinityCI.Grpc.JobAssignment assignment;
+            if (workflow.Scm is { } scm)
             {
-                Assignment = new JobAssignment
+                var credential = credentialStore.Resolve(scm.Credentials);
+                assignment = new JobAssignment
                 {
                     RunId = jobRun.RunId,
                     JobRunId = jobRun.Id,
                     JobKey = jobRun.JobKey,
                     WorkflowName = run.WorkflowName,
                     WorkflowYaml = rawYaml,
-                },
-            });
+                    ScmUrl = scm.Url ?? "",
+                    ScmBranch = scm.Branch ?? "",
+                    ScmRef = scm.Ref ?? "",
+                    ScmUsername = credential?.Username ?? "",
+                    ScmPassword = credential?.Password ?? "",
+                };
+            }
+            else
+            {
+                assignment = new JobAssignment
+                {
+                    RunId = jobRun.RunId,
+                    JobRunId = jobRun.Id,
+                    JobKey = jobRun.JobKey,
+                    WorkflowName = run.WorkflowName,
+                    WorkflowYaml = rawYaml,
+                };
+            }
+            var sent = await registry.TrySendAsync(agent.Id, new MasterToAgent { Assignment = assignment });
             if (!sent)
             {
                 // Connection died between reserve and send — drop the claim; the
@@ -98,6 +122,20 @@ public sealed class RemoteBuildCoordinator(
             return true;
         }
         return false;
+    }
+
+    /// <summary>Persists the branch/commit an agent checked out, for the dashboard.</summary>
+    public async Task ApplyScmCheckoutAsync(ScmCheckout checkout)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<RunRepository>();
+        var jobRun = await repo.GetJobRunAsync(checkout.JobRunId);
+        if (jobRun is null)
+            return;
+        jobRun.SourceBranch = checkout.Branch;
+        jobRun.CommitSha = checkout.CommitSha;
+        await repo.SaveJobRunTransitionAsync(jobRun);
+        await events.PublishJobRunUpdatedAsync(jobRun);
     }
 
     public async Task AppendLogAsync(LogChunk chunk)

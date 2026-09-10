@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using InfinityCI.Core;
+using InfinityCI.Server.Auth;
 using InfinityCI.Server.Storage;
 using Microsoft.Extensions.Options;
 
@@ -14,12 +15,13 @@ public sealed class JobRunExecutor(
     IOptions<CiServerOptions> optionsAccessor,
     JobLogStore logStore,
     RunEvents events,
+    CredentialStore credentialStore,
     IServiceScopeFactory scopeFactory,
     ILogger<JobRunExecutor> logger)
 {
     private readonly CiServerOptions _options = optionsAccessor.Value;
 
-    public async Task<JobRunStatus> ExecuteAsync(JobRun jobRun, WorkflowJob job, CancellationToken stoppingToken)
+    public async Task<JobRunStatus> ExecuteAsync(JobRun jobRun, WorkflowJob job, ScmConfig? workflowScm, CancellationToken stoppingToken)
     {
         using var scope = scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<RunRepository>();
@@ -32,6 +34,34 @@ public sealed class JobRunExecutor(
 
         var workspace = Path.Combine(_options.WorkspacesDir, $"{jobRun.RunId}-{JobLogStore.SanitizeJobKey(jobRun.JobKey)}");
         Directory.CreateDirectory(workspace);
+
+        // SCM checkout: steps run inside the working copy when the workflow
+        // declares an scm block. Failures fail the job like a failed step.
+        if (workflowScm is { } scm)
+        {
+            try
+            {
+                await Append(jobRun, 0, $"[server] checking out {scm.Url}...");
+                var credential = credentialStore.Resolve(scm.Credentials);
+                var checkout = GitSourceFetcher.Fetch(scm, workspace, credential, line => Append(jobRun, 0, line).GetAwaiter().GetResult());
+                jobRun.SourceBranch = checkout.Branch;
+                jobRun.CommitSha = checkout.CommitSha;
+                await repo.SaveJobRunTransitionAsync(jobRun, CancellationToken.None);
+                await events.PublishJobRunUpdatedAsync(jobRun);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                await Append(jobRun, 0, $"[server] checkout failed: {ex.Message}");
+                jobRun.Status = JobRunStatus.Failed;
+                jobRun.FinishedAt = DateTimeOffset.UtcNow;
+                await PersistAsync(repo, jobRun, CancellationToken.None);
+                return JobRunStatus.Failed;
+            }
+        }
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         var overall = JobRunStatus.Success;
