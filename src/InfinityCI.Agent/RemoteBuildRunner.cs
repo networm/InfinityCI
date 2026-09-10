@@ -166,6 +166,11 @@ public sealed class RemoteBuildRunner(
         var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (key, value) in job.Environment)
             env[key] = value;
+        var runParams = string.IsNullOrEmpty(assignment.ParamsJson)
+            ? new Dictionary<string, string>()
+            : System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(assignment.ParamsJson) ?? [];
+        foreach (var (key, value) in runParams)
+            env[key] = value;
         foreach (var (key, value) in step.Environment)
             env[key] = value;
         env["CI"] = "true";

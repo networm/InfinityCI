@@ -4,9 +4,11 @@ import type { HubConnection } from "@microsoft/signalr";
 import { ChevronLeft, ChevronRight, History, Pencil, Play, RefreshCw, Trash2 } from "lucide-react";
 
 import { HistoryDrawer } from "@/components/history-drawer";
+import { useTriggerWithParams } from "@/components/trigger-dialog";
 import { StatusIcon } from "@/components/status-icon";
 import { api, UnauthorizedError } from "@/lib/api";
 import { useMe } from "@/lib/me-context";
+import { useResolveUserName } from "@/lib/user-names";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import { getCiHub } from "@/lib/signalr";
 import type { JobRun, Run, RunsPageItem, WorkflowInfo } from "@/lib/types";
@@ -15,6 +17,7 @@ const PAGE_SIZE = 20;
 
 export function WorkflowDetailPage() {
   const { name } = useParams({ from: "/jobs/$name" });
+  const resolveName = useResolveUserName();
   const [workflow, setWorkflow] = useState<WorkflowInfo | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -34,8 +37,9 @@ export function WorkflowDetailPage() {
     itemsRef.current = items;
   }, [items]);
   const [refreshing, setRefreshing] = useState(false);
-  const [triggering, setTriggering] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [paramDefs, setParamDefs] = useState<import("@/lib/types").WorkflowParam[]>([]);
+  const { requestTrigger, dialog } = useTriggerWithParams();
 
   const loadPage = useCallback(
     async (targetPage: number) => {
@@ -62,7 +66,10 @@ export function WorkflowDetailPage() {
       .then((list) => {
         const found = list.find((w) => w.name === name);
         if (!found) setNotFound(true);
-        else setWorkflow(found);
+        else {
+          setWorkflow(found);
+          setParamDefs(found.params ?? []);
+        }
       })
       .catch((e) => setMessage(e instanceof Error ? e.message : String(e)));
   }, [name]);
@@ -150,17 +157,10 @@ export function WorkflowDetailPage() {
       <Header
         name={name}
         workflow={workflow}
-        triggering={triggering}
-        onTrigger={async () => {
-          setTriggering(true);
-          try {
-            const run = await api.trigger(name);
+        onTrigger={() => {
+          requestTrigger(name, paramDefs, (run) => {
             window.location.assign(`/runs/${run.id}`);
-          } catch (e) {
-            setMessage(e instanceof Error ? e.message : String(e));
-          } finally {
-            setTriggering(false);
-          }
+          });
         }}
         onHistory={() => setHistoryOpen(true)}
         onDelete={async () => {
@@ -231,7 +231,7 @@ export function WorkflowDetailPage() {
                         ))}
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-[#57606a]">{item.run.triggeredBy || "—"}</td>
+                    <td className="px-3 py-2 text-[#57606a]">{resolveName(item.run.triggeredBy)}</td>
                     <td className="px-3 py-2 text-[#57606a]">{formatDateTime(item.run.createdAt)}</td>
                     <td className="px-3 py-2 text-[#57606a]">{formatDuration(item.run.startedAt, item.run.finishedAt)}</td>
                   </tr>
@@ -275,6 +275,7 @@ export function WorkflowDetailPage() {
       </section>
 
       {historyOpen && <HistoryDrawer name={name} isAdmin={isAdmin} onClose={() => setHistoryOpen(false)} />}
+      {dialog}
     </div>
   );
 }
@@ -282,14 +283,12 @@ export function WorkflowDetailPage() {
 function Header({
   name,
   workflow,
-  triggering,
   onTrigger,
   onHistory,
   onDelete,
 }: {
   name: string;
   workflow: WorkflowInfo | null;
-  triggering: boolean;
   onTrigger: () => void;
   onHistory: () => void;
   onDelete: () => void;
@@ -315,7 +314,7 @@ function Header({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          disabled={triggering}
+          disabled={false}
           onClick={onTrigger}
           className="flex items-center gap-1.5 rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
         >

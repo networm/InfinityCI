@@ -114,6 +114,7 @@ using (var scope = app.Services.CreateScope())
         db.Users.Add(new User
         {
             Username = "admin",
+            DisplayName = "管理员",
             PasswordHash = PasswordHasher.Hash("admin"),
             Role = AppRoles.SuperAdmin,
             Projects = { new UserProject { Project = defaultProject } },

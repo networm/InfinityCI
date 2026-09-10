@@ -86,8 +86,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ sha }),
     }),
-  trigger: (name: string) =>
-    request<Run>(`/api/jobs/${encodeURIComponent(name)}/trigger`, { method: "POST" }),
+  trigger: (name: string, params?: Record<string, string>) =>
+    request<Run>(`/api/jobs/${encodeURIComponent(name)}/trigger`, {
+      method: "POST",
+      body: JSON.stringify({ params: params ?? {} }),
+    }),
+  userNames: () => request<Record<string, string>>("/api/users/names"),
 
   // projects
   projects: () => request<ProjectInfo[]>("/api/projects"),
@@ -98,12 +102,12 @@ export const api = {
   // users
   users: () =>
     request<UserInfo[]>("/api/users"),
-  createUser: (username: string, password: string, role: string, projectIds: number[]) =>
+  createUser: (username: string, password: string, role: string, projectIds: number[], displayName?: string) =>
     request<{ id: number }>("/api/users", {
       method: "POST",
-      body: JSON.stringify({ username, password, role, projectIds }),
+      body: JSON.stringify({ username, password, role, projectIds, displayName }),
     }),
-  updateUser: (id: number, payload: { password?: string; role?: string; projectIds?: number[] }) =>
+  updateUser: (id: number, payload: { password?: string; role?: string; projectIds?: number[]; displayName?: string }) =>
     request<unknown>(`/api/users/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteUser: (id: number) => request<unknown>(`/api/users/${id}`, { method: "DELETE" }),
 

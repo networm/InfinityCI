@@ -33,11 +33,19 @@ export interface JobRun {
   steps: JobStep[];
 }
 
+export interface WorkflowParam {
+  name: string;
+  default: string;
+  required: boolean;
+  description: string | null;
+}
+
 export interface Run {
   id: number;
   workflowName: string;
   project: string;
   triggeredBy: string;
+  params: Record<string, string>;
   status: RunStatus;
   createdAt: string;
   startedAt: string | null;
@@ -75,10 +83,12 @@ export interface WorkflowInfo {
   project: string;
   jobs: WorkflowJobInfo[];
   scm?: { url: string; branch: string | null; ref: string | null; credentials: string | null } | null;
+  params?: WorkflowParam[];
 }
 
 export interface Me {
   username: string;
+  displayName: string;
   role: UserRole;
 }
 
@@ -117,6 +127,7 @@ export interface ProjectInfo {
 export interface UserInfo {
   id: number;
   username: string;
+  displayName: string | null;
   role: UserRole;
   projects: { projectId: number; name: string }[];
 }

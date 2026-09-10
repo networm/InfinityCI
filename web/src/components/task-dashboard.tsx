@@ -4,6 +4,7 @@ import { Play, RefreshCw, Star } from "lucide-react";
 import type { HubConnection } from "@microsoft/signalr";
 
 import { StatusIcon } from "@/components/status-icon";
+import { useTriggerWithParams } from "@/components/trigger-dialog";
 import { api } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { getCiHub } from "@/lib/signalr";
@@ -26,17 +27,21 @@ function rowColors(status: string | null): { bg: string; bar: string } {
 }
 
 export function TaskDashboard() {
+  const { requestTrigger, dialog } = useTriggerWithParams();
   const [items, setItems] = useState<DashboardItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [triggering, setTriggering] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
+
+  const [paramDefs, setParamDefs] = useState<Record<string, import("@/lib/types").WorkflowParam[]>>({});
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
       setItems(await api.dashboard());
+      const jobs = await api.jobs();
+      setParamDefs(Object.fromEntries(jobs.map((j) => [j.name, j.params ?? []])));
     } catch (e) {
       setMessage(e instanceof Error ? e.message : String(e));
     } finally {
@@ -98,16 +103,10 @@ export function TaskDashboard() {
     }
   };
 
-  const trigger = async (name: string) => {
-    setTriggering(name);
-    try {
-      const run = await api.trigger(name);
+  const trigger = (name: string) => {
+    requestTrigger(name, paramDefs[name] ?? [], (run) => {
       window.location.assign(`/runs/${run.id}`);
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : String(e));
-    } finally {
-      setTriggering(null);
-    }
+    });
   };
 
   const favorites = items.filter((i) => i.isFavorite);
@@ -150,7 +149,7 @@ export function TaskDashboard() {
               </h2>
               <div className="space-y-2">
                 {favorites.map((item) => (
-                  <WorkflowRow key={item.name} item={item} triggering={triggering} onTrigger={trigger} onToggleFavorite={toggleFavorite} />
+                  <WorkflowRow key={item.name} item={item} onTrigger={trigger} onToggleFavorite={toggleFavorite} />
                 ))}
               </div>
             </section>
@@ -160,25 +159,24 @@ export function TaskDashboard() {
             {favorites.length > 0 && <h2 className="mb-2 text-sm font-medium text-[#57606a]">全部任务</h2>}
             <div className="space-y-2">
               {others.map((item) => (
-                <WorkflowRow key={item.name} item={item} triggering={triggering} onTrigger={trigger} onToggleFavorite={toggleFavorite} />
+                <WorkflowRow key={item.name} item={item} onTrigger={trigger} onToggleFavorite={toggleFavorite} />
               ))}
             </div>
           </section>
         </>
       )}
 
+      {dialog}
     </div>
   );
 }
 
 function WorkflowRow({
   item,
-  triggering,
   onTrigger,
   onToggleFavorite,
 }: {
   item: DashboardItem;
-  triggering: string | null;
   onTrigger: (name: string) => void;
   onToggleFavorite: (name: string) => void;
 }) {
@@ -239,7 +237,6 @@ function WorkflowRow({
 
       <button
         type="button"
-        disabled={triggering === item.name}
         onClick={() => onTrigger(item.name)}
         className="ml-2 flex shrink-0 items-center gap-1 rounded-md bg-[#2da44e] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
       >

@@ -35,10 +35,29 @@ public sealed class RunQueueService(
     /// <summary>Completes once startup recovery has finished; triggers before this may race recovery.</summary>
     public Task Ready => _recoveryCompleted.Task;
 
-    public async Task<Run> TriggerAsync(string workflowName, string triggeredBy, CancellationToken ct = default)
+    public async Task<Run> TriggerAsync(string workflowName, string triggeredBy, IReadOnlyDictionary<string, string>? paramValues = null, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workflowName);
         var workflow = workflowStore.TryGet(workflowName) ?? throw new InvalidOperationException($"Unknown workflow '{workflowName}'.");
+
+        // Merge caller-provided values over defaults; required params must end up non-empty.
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var definition in workflow.Params)
+            values[definition.Name] = definition.Default;
+        if (paramValues is not null)
+        {
+            foreach (var (key, value) in paramValues)
+            {
+                if (workflow.Params.Any(p => p.Name.Equals(key, StringComparison.OrdinalIgnoreCase)))
+                    values[key] = value ?? "";
+            }
+        }
+        var missing = workflow.Params
+            .Where(p => p.Required && string.IsNullOrWhiteSpace(values.GetValueOrDefault(p.Name)))
+            .Select(p => p.Name)
+            .ToList();
+        if (missing.Count > 0)
+            throw new InvalidOperationException($"Missing required parameter(s): {string.Join(", ", missing)}.");
 
         using var scope = scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<RunRepository>();
@@ -48,6 +67,7 @@ public sealed class RunQueueService(
             WorkflowName = workflow.Name,
             Project = workflow.Project,
             TriggeredBy = triggeredBy,
+            Params = values,
             Status = RunStatus.Running, // jobs are enqueued immediately below
             CreatedAt = DateTimeOffset.UtcNow,
             StartedAt = DateTimeOffset.UtcNow,
@@ -170,7 +190,7 @@ public sealed class RunQueueService(
             if (jobRun is null)
                 continue;
 
-            var (job, workflowScm) = await ResolveJobAsync(jobRun, stoppingToken);
+            var (job, workflowScm, runParams) = await ResolveJobAsync(jobRun, stoppingToken);
             if (job is null)
             {
                 jobRun.Status = JobRunStatus.Failed;
@@ -190,7 +210,7 @@ public sealed class RunQueueService(
             _active[jobRun.Id] = cts;
             try
             {
-                await _executor.ExecuteAsync(jobRun, job, workflowScm, cts.Token);
+                await _executor.ExecuteAsync(jobRun, job, workflowScm, runParams, cts.Token);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -210,14 +230,14 @@ public sealed class RunQueueService(
         }
     }
 
-    private async Task<(WorkflowJob?, ScmConfig?)> ResolveJobAsync(JobRun jobRun, CancellationToken ct)
+    private async Task<(WorkflowJob?, ScmConfig?, IReadOnlyDictionary<string, string>)> ResolveJobAsync(JobRun jobRun, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var run = await scope.ServiceProvider.GetRequiredService<RunRepository>().GetRunAsync(jobRun.RunId, ct);
         if (run is null)
-            return (null, null);
+            return (null, null, new Dictionary<string, string>());
         var workflow = workflowStore.TryGet(run.WorkflowName);
-        return (workflow?.Jobs.GetValueOrDefault(jobRun.JobKey), workflow?.Scm);
+        return (workflow?.Jobs.GetValueOrDefault(jobRun.JobKey), workflow?.Scm, run.Params);
     }
 
     /// <summary>Job runs left unfinished by a previous server run are requeued.</summary>

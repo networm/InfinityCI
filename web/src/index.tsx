@@ -5,6 +5,7 @@ import { RouterProvider } from "@tanstack/react-router";
 
 import { router } from "./router";
 import { MeProvider, useMe } from "./lib/me-context";
+import { UserNamesProvider } from "./lib/user-names";
 import { LoginPage } from "./pages/login";
 import "./styles.css";
 
@@ -32,7 +33,9 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <MeProvider>
-        <AppGate />
+        <UserNamesProvider>
+          <AppGate />
+        </UserNamesProvider>
       </MeProvider>
     </QueryClientProvider>
   </StrictMode>,

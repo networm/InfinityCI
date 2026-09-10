@@ -57,6 +57,7 @@ public sealed class RemoteBuildCoordinator(
 
             // Re-derive steps from the workflow so the UI and the agent agree on indexes.
             var workflow = WorkflowYaml.Parse(rawYaml);
+            var runParams = (await repo.GetRunAsync(jobRun.RunId))?.Params ?? new Dictionary<string, string>();
             var job = workflow.Jobs.GetValueOrDefault(jobRun.JobKey);
             if (job is null)
             {
@@ -94,6 +95,7 @@ public sealed class RemoteBuildCoordinator(
                     ScmRef = scm.Ref ?? "",
                     ScmUsername = credential?.Username ?? "",
                     ScmPassword = credential?.Password ?? "",
+                    ParamsJson = System.Text.Json.JsonSerializer.Serialize(runParams),
                 };
             }
             else
@@ -105,6 +107,7 @@ public sealed class RemoteBuildCoordinator(
                     JobKey = jobRun.JobKey,
                     WorkflowName = run.WorkflowName,
                     WorkflowYaml = rawYaml,
+                    ParamsJson = System.Text.Json.JsonSerializer.Serialize(runParams),
                 };
             }
             var sent = await registry.TrySendAsync(agent.Id, new MasterToAgent { Assignment = assignment });

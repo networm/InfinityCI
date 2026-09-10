@@ -6,6 +6,8 @@ public sealed class User
 {
     public long Id { get; set; }
     public required string Username { get; set; }
+    /// <summary>Human-readable name shown in the UI instead of the username.</summary>
+    public string? DisplayName { get; set; }
     /// <summary>PBKDF2-SHA256 hash in "iterations.saltB64.hashB64" form.</summary>
     public required string PasswordHash { get; set; }
     public required string Role { get; set; }

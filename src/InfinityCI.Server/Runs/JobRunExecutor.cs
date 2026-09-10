@@ -21,7 +21,7 @@ public sealed class JobRunExecutor(
 {
     private readonly CiServerOptions _options = optionsAccessor.Value;
 
-    public async Task<JobRunStatus> ExecuteAsync(JobRun jobRun, WorkflowJob job, ScmConfig? workflowScm, CancellationToken stoppingToken)
+    public async Task<JobRunStatus> ExecuteAsync(JobRun jobRun, WorkflowJob job, ScmConfig? workflowScm, IReadOnlyDictionary<string, string> runParams, CancellationToken stoppingToken)
     {
         using var scope = scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<RunRepository>();
@@ -79,7 +79,7 @@ public sealed class JobRunExecutor(
                 result.StartLine = await logStore.GetEndLineAsync(jobRun.RunId, jobRun.JobKey);
                 await PersistAsync(repo, jobRun, cts.Token);
 
-                var exitCode = await RunStepAsync(jobRun, job, step, workspace, i, cts.Token);
+                var exitCode = await RunStepAsync(jobRun, job, step, workspace, i, runParams, cts.Token);
 
                 result.ExitCode = exitCode;
                 result.FinishedAt = DateTimeOffset.UtcNow;
@@ -157,10 +157,14 @@ public sealed class JobRunExecutor(
         await events.PublishLogAppendedAsync(new LogAppendedEventArgs(jobRun.RunId, jobRun.JobKey, line));
     }
 
-    private async Task<int> RunStepAsync(JobRun jobRun, WorkflowJob job, JobStep step, string workspace, int stepIndex, CancellationToken ct)
+    private async Task<int> RunStepAsync(JobRun jobRun, WorkflowJob job, JobStep step, string workspace, int stepIndex, IReadOnlyDictionary<string, string> runParams, CancellationToken ct)
     {
         var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (key, value) in job.Environment)
+            env[key] = value;
+        // Run parameters are exported with the parameter name as the env-var name;
+        // step env can still override individual values.
+        foreach (var (key, value) in runParams)
             env[key] = value;
         foreach (var (key, value) in step.Environment)
             env[key] = value;

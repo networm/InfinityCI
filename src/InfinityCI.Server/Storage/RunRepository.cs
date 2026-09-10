@@ -18,6 +18,7 @@ public sealed class RunRepository(CiDbContext db)
     public async Task<Run> AddRunAsync(Run run, CancellationToken ct = default)
     {
         run.Version = 1;
+        run.ParamsJson = JsonSerializer.Serialize(run.Params);
         db.Runs.Add(run);
         await db.SaveChangesAsync(ct);
         return run;
@@ -33,6 +34,8 @@ public sealed class RunRepository(CiDbContext db)
     public async Task<Run?> GetRunAsync(long id, CancellationToken ct = default)
     {
         var run = await db.Runs.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (run is not null)
+            run.Params = JsonSerializer.Deserialize<Dictionary<string, string>>(run.ParamsJson) ?? new(StringComparer.OrdinalIgnoreCase);
         return run;
     }
 

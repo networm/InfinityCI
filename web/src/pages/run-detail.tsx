@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
 import type { HubConnection } from "@microsoft/signalr";
-import { Ban, ChevronDown, ChevronRight } from "lucide-react";
+import { Ban, ChevronDown, ChevronRight, Download } from "lucide-react";
 
 import { StatusIcon } from "@/components/status-icon";
 import { api } from "@/lib/api";
-import { layoutDag, DAG_NODE_HEIGHT } from "@/lib/dag";
+import { layoutDag } from "@/lib/dag";
 import { formatDuration, formatLogTimestamp } from "@/lib/format";
+import { useResolveUserName } from "@/lib/user-names";
 import { getCiHub } from "@/lib/signalr";
-import type { JobRun, LogLine, Run, RunSubscription } from "@/lib/types";
+import type { JobRun, LogLine, Run, RunStatus, RunSubscription } from "@/lib/types";
 
 type LogsByJob = Record<string, LogLine[]>;
 
 export function BuildDetailPage() {
   const { runId: runIdParam } = useParams({ from: "/runs/$runId" });
   const runId = Number(runIdParam);
+  const resolveName = useResolveUserName();
 
   const [run, setRun] = useState<Run | null>(null);
   const [jobs, setJobs] = useState<JobRun[]>([]);
@@ -124,7 +126,7 @@ export function BuildDetailPage() {
         <div className="flex items-center gap-3 text-xs text-[#57606a]">
           {run && (
             <span>
-              由 {run.triggeredBy || "—"} 触发 · 项目 {run.project}
+              由 {resolveName(run.triggeredBy)} 触发 · 项目 {run.project}
             </span>
           )}
           {isRunOpen && (
@@ -148,6 +150,17 @@ export function BuildDetailPage() {
         </div>
       </div>
 
+      {run && Object.keys(run.params ?? {}).length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-[#57606a]">参数：</span>
+          {Object.entries(run.params).map(([key, value]) => (
+            <span key={key} className="rounded bg-[#eaeef2] px-1.5 py-0.5 font-mono">
+              {key}=<span className="text-[#57606a]">{value}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
       {error && (
         <div className="rounded-md border border-[#ffc1bc] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">{error}</div>
       )}
@@ -155,6 +168,7 @@ export function BuildDetailPage() {
       {/* Job dependency DAG (GitHub style) — rendered when the workflow uses needs */}
       <DagView
         jobs={jobs}
+        runStatus={run?.status ?? null}
         selected={currentJob?.jobKey ?? null}
         onSelect={(jobKey) => setSelectedJob(jobKey)}
       />
@@ -208,62 +222,77 @@ const DAG_STATUS_STROKE: Record<string, string> = {
   Failed: "#cf222e",
   Running: "#9a6700",
   Cancelled: "#57606a",
-  Queued: "#d1d9e0",
-  Pending: "#d1d9e0",
+  Queued: "#8c959f",
+  Pending: "#8c959f",
   Skipped: "#d1d9e0",
 };
 
 function DagView({
   jobs,
+  runStatus,
   selected,
   onSelect,
 }: {
   jobs: JobRun[];
+  runStatus: RunStatus | null;
   selected: string | null;
   onSelect: (jobKey: string) => void;
 }) {
-  const layout = useMemo(() => layoutDag(jobs), [jobs]);
+  const layout = useMemo(() => layoutDag(jobs, runStatus), [jobs, runStatus]);
   if (!layout) return null;
 
   return (
     <div className="overflow-x-auto rounded-md border border-[#d0d7de] bg-white p-4">
-      <svg
-        width={layout.width + 8}
-        height={layout.height + 8}
-        role="img"
-        aria-label="Job 依赖图"
-        style={{ minWidth: layout.width + 8 }}
-      >
-        {layout.edges.map((edge) => (
-          <polyline
-            key={`${edge.from}->${edge.to}`}
-            points={edge.points}
-            fill="none"
-            stroke={selected === edge.to ? "#0969da" : "#d1d9e0"}
-            strokeWidth={selected === edge.to ? 2 : 1.5}
-          />
-        ))}
-        {layout.nodes.map((node) => {
-          const isSelected = node.jobKey === selected;
-          const stroke = DAG_STATUS_STROKE[node.status] ?? "#d1d9e0";
+      <svg width={layout.width} height={layout.height + 24} role="img" aria-label="Job 依赖图" style={{ minWidth: layout.width }}>
+        {layout.edges.map((edge) => {
+          const highlight = selected === edge.to || selected === edge.from;
           return (
-            <g
-              key={node.jobKey}
-              transform={`translate(${node.x + 4}, ${node.y + 4})`}
-              onClick={() => onSelect(node.jobKey)}
-              style={{ cursor: "pointer" }}
-            >
-              <rect
-                width={132}
-                height={DAG_NODE_HEIGHT}
-                rx={6}
-                fill={isSelected ? "#ddf4ff" : "#f6f8fa"}
-                stroke={isSelected ? "#0969da" : stroke}
-                strokeWidth={isSelected ? 2 : 1.5}
-              />
-              <circle cx={18} cy={DAG_NODE_HEIGHT / 2} r={5} fill={stroke} />
-              <text x={32} y={DAG_NODE_HEIGHT / 2 + 4} fontSize={12} fill="#24292f" fontFamily="inherit">
-                {node.jobKey}
+            <polyline
+              key={`${edge.from}->${edge.to}`}
+              points={edge.points}
+              fill="none"
+              stroke={highlight ? "#0969da" : "#d1d9e0"}
+              strokeWidth={highlight ? 2 : 1.5}
+            />
+          );
+        })}
+        {layout.nodes.map((node) => {
+          if (node.kind === "job") {
+            const isSelected = node.jobKey === selected;
+            const stroke = DAG_STATUS_STROKE[node.status ?? "Queued"] ?? "#8c959f";
+            const inner = node.status === "Success" || node.status === "Failed" || node.status === "Running";
+            return (
+              <g
+                key={node.jobKey!}
+                transform={`translate(${node.cx}, ${node.cy})`}
+                onClick={() => onSelect(node.jobKey!)}
+                style={{ cursor: "pointer" }}
+              >
+                <circle
+                  r={14}
+                  fill={isSelected ? "#ddf4ff" : inner ? stroke : "#ffffff"}
+                  stroke={isSelected ? "#0969da" : stroke}
+                  strokeWidth={isSelected ? 2.5 : 2}
+                />
+                <text y={32} textAnchor="middle" fontSize={12} fill={isSelected ? "#0969da" : "#24292f"} fontFamily="inherit">
+                  {node.jobKey}
+                </text>
+              </g>
+            );
+          }
+          // start / end virtual nodes
+          const isEnd = node.kind === "end";
+          const stroke = isEnd ? DAG_STATUS_STROKE[node.status ?? "Queued"] ?? "#8c959f" : "#57606a";
+          return (
+            <g key={node.kind} transform={`translate(${node.cx}, ${node.cy})`}>
+              <circle r={11} fill="#f6f8fa" stroke={stroke} strokeWidth={2} />
+              {isEnd ? (
+                <circle r={4.5} fill={stroke} />
+              ) : (
+                <path d="M -4 0 L 4 0 M 0 -4 L 0 4" stroke={stroke} strokeWidth={1.5} />
+              )}
+              <text y={28} textAnchor="middle" fontSize={11} fill="#57606a" fontFamily="inherit">
+                {isEnd ? "结束" : "开始"}
               </text>
             </g>
           );
@@ -292,12 +321,7 @@ function JobConsole({ job, lines }: { job: JobRun; lines: LogLine[] }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 rounded-md border border-[#d0d7de] bg-white px-3 py-2.5">
-        <StatusIcon status={job.status} size={18} />
-        <span className="text-sm font-semibold">{job.jobKey}</span>
-        {job.agentId && <span className="rounded bg-[#ddf4ff] px-1.5 py-0.5 text-xs text-[#0969da]">agent</span>}
-        <span className="ml-auto text-xs text-[#57606a]">{formatDuration(job.startedAt, job.finishedAt)}</span>
-      </div>
+      <JobHeader job={job} />
 
       {job.steps.map((step, index) => (
         <StepSection
@@ -388,4 +412,47 @@ function AutoScroll({
     }
   }, [dep, containerRef, stickRef]);
   return null;
+}
+
+
+function JobHeader({ job }: { job: JobRun }) {
+  const [open, setOpen] = useState(false);
+  const base = `/api/runs/${job.runId}/logs/${encodeURIComponent(job.jobKey)}/download`;
+
+  return (
+    <div className="relative flex items-center gap-2 rounded-md border border-[#d0d7de] bg-white px-3 py-2.5">
+      <StatusIcon status={job.status} size={18} />
+      <span className="text-sm font-semibold">{job.jobKey}</span>
+      {job.agentId && <span className="rounded bg-[#ddf4ff] px-1.5 py-0.5 text-xs text-[#0969da]">agent</span>}
+      <span className="ml-auto text-xs text-[#57606a]">{formatDuration(job.startedAt, job.finishedAt)}</span>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] px-2 py-1 text-xs hover:bg-[#f3f4f6]"
+        >
+          <Download size={12} />
+          下载日志
+        </button>
+        {open && (
+          <div className="absolute right-0 z-10 mt-1 w-44 overflow-hidden rounded-md border border-[#d0d7de] bg-white shadow-lg">
+            <a
+              href={`${base}?format=raw`}
+              className="block px-3 py-2 text-xs hover:bg-[#f6f8fa]"
+              onClick={() => setOpen(false)}
+            >
+              原始日志
+            </a>
+            <a
+              href={`${base}?format=timestamped`}
+              className="block px-3 py-2 text-xs hover:bg-[#f6f8fa]"
+              onClick={() => setOpen(false)}
+            >
+              带时间戳日志
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

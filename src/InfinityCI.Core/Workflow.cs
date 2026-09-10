@@ -9,7 +9,18 @@ public sealed class Workflow
 
     /// <summary>Optional Git source checkout; steps run inside the working copy.</summary>
     public ScmConfig? Scm { get; init; }
+
+    /// <summary>Build parameters; every value is exported to steps as an environment variable.</summary>
+    public IReadOnlyList<WorkflowParam> Params { get; init; } = [];
     public required IReadOnlyDictionary<string, WorkflowJob> Jobs { get; init; }
+}
+
+public sealed class WorkflowParam
+{
+    public required string Name { get; init; }
+    public string Default { get; init; } = "";
+    public bool Required { get; init; }
+    public string? Description { get; init; }
 }
 
 public sealed class WorkflowJob

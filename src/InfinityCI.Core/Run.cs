@@ -39,6 +39,13 @@ public sealed class Run
     /// <summary>Monotonic mutation counter; real-time clients drop stale updates.</summary>
     public long Version { get; set; }
 
+    /// <summary>Parameter values used for this run (name -> value), persisted as JSON.</summary>
+    public Dictionary<string, string> Params { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>EF-mapped JSON mirror of <see cref="Params"/> (not part of the public API).</summary>
+    [JsonIgnore]
+    public string ParamsJson { get; set; } = "{}";
+
     public bool IsTerminal => Status is RunStatus.Success or RunStatus.Failed or RunStatus.Cancelled;
 }
 

@@ -1,6 +1,7 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 
 import { useMe } from "@/lib/me-context";
+import { useResolveUserName } from "@/lib/user-names";
 
 const tabs = [
   { to: "/", label: "Dashboard" },
@@ -11,6 +12,7 @@ const tabs = [
 
 export function AppLayout() {
   const { me, logout } = useMe();
+  const resolveName = useResolveUserName();
   const location = useRouterState({ select: (s) => s.location.pathname });
 
   return (
@@ -52,8 +54,8 @@ export function AppLayout() {
             )}
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
-            <span className="text-white/80">
-              {me?.username}
+            <span className="text-white/80" title={me?.username}>
+              {(me && resolveName(me.username)) || me?.username}
               <span className="ml-1.5 rounded bg-white/15 px-1.5 py-0.5 text-xs">{me?.role}</span>
             </span>
             <button

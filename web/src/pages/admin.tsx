@@ -109,8 +109,9 @@ function UsersSection() {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState<{ username: string; password: string; role: UserRole; projectIds: number[] }>({
+  const [form, setForm] = useState<{ username: string; displayName: string; password: string; role: UserRole; projectIds: number[] }>({
     username: "",
+    displayName: "",
     password: "",
     role: "User",
     projectIds: [],
@@ -157,6 +158,14 @@ function UsersSection() {
               />
             </label>
             <label className="text-sm">
+              <span className="mb-1 block text-xs font-medium text-[#57606a]">姓名</span>
+              <input
+                value={form.displayName}
+                onChange={(e) => setForm({ ...form, displayName: e.target.value })}
+                className="w-full rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da]"
+              />
+            </label>
+            <label className="text-sm">
               <span className="mb-1 block text-xs font-medium text-[#57606a]">密码</span>
               <input
                 type="password"
@@ -199,9 +208,9 @@ function UsersSection() {
               disabled={!form.username || !form.password}
               onClick={async () => {
                 try {
-                  await api.createUser(form.username, form.password, form.role, form.projectIds);
+                  await api.createUser(form.username, form.password, form.role, form.projectIds, form.displayName);
                   setCreating(false);
-                  setForm({ username: "", password: "", role: "User", projectIds: [] });
+                  setForm({ username: "", displayName: "", password: "", role: "User", projectIds: [] });
                   await reload();
                 } catch (e) {
                   setMessage(e instanceof Error ? e.message : String(e));
@@ -245,6 +254,7 @@ function UsersSection() {
             {users.map((user) => (
               <tr key={user.id} className="border-b border-[#d8dee4] last:border-0">
                 <td className="px-4 py-2 font-medium">{user.username}</td>
+                <td className="px-4 py-2 text-[#57606a]">{user.displayName ?? "—"}</td>
                 <td className="px-4 py-2">
                   <select
                     value={user.role}

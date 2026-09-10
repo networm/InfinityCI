@@ -19,8 +19,9 @@ namespace InfinityCI.Server.Api;
 public sealed record LogPage(long RunId, string JobKey, long NextLine, IReadOnlyList<LogLine> Lines);
 public sealed record RunsPageItem(Run Run, IReadOnlyList<JobRun> Jobs);
 public record LoginRequest(string Username, string Password);
-public record CreateUserRequest(string Username, string Password, string Role, long[] ProjectIds);
-public record UpdateUserRequest(string? Password, string? Role, long[]? ProjectIds);
+public record CreateUserRequest(string Username, string Password, string Role, long[] ProjectIds, string? DisplayName);
+public record UpdateUserRequest(string? Password, string? Role, long[]? ProjectIds, string? DisplayName);
+public record TriggerRequest(Dictionary<string, string>? Params);
 public record ProjectRequest(string Name, string? Description);
 public record SaveWorkflowRequest(string Yaml);
 public record EnrollmentRequest(string Name, string[] Labels, int MaxConcurrentBuilds);
@@ -72,10 +73,24 @@ public static class CiApi
             return Results.Ok();
         }).AllowAnonymous();
 
-        app.MapGet("/api/me", (ClaimsPrincipal user) =>
-            user.Identity?.IsAuthenticated == true
-                ? Results.Ok(new { username = user.Identity.Name, role = user.FindFirst(ClaimTypes.Role)?.Value })
-                : Results.Unauthorized()).AllowAnonymous();
+        app.MapGet("/api/me", async (ClaimsPrincipal user, CiDbContext db) =>
+        {
+            if (user.Identity?.IsAuthenticated != true)
+                return Results.Unauthorized();
+            var account = await db.Users.FirstOrDefaultAsync(u => u.Username == user.Identity.Name);
+            return Results.Ok(new
+            {
+                username = user.Identity.Name,
+                displayName = account?.DisplayName ?? user.Identity.Name,
+                role = user.FindFirst(ClaimTypes.Role)?.Value,
+            });
+        }).AllowAnonymous();
+
+        // Username -> display name map for any authenticated user (UI attribution).
+        app.MapGet("/api/users/names", async (CiDbContext db) =>
+            Results.Ok(await db.Users.ToDictionaryAsync(
+                u => u.Username,
+                u => string.IsNullOrWhiteSpace(u.DisplayName) ? u.Username : u.DisplayName)));
     }
 
     // -- users & projects --
@@ -122,6 +137,7 @@ public static class CiApi
                 {
                     u.Id,
                     u.Username,
+                    u.DisplayName,
                     u.Role,
                     projects = u.Projects.Select(up => new { up.ProjectId, up.Project.Name }),
                 })
@@ -140,6 +156,7 @@ public static class CiApi
             var user = new User
             {
                 Username = request.Username.Trim(),
+                DisplayName = request.DisplayName,
                 PasswordHash = PasswordHasher.Hash(request.Password),
                 Role = request.Role,
             };
@@ -160,6 +177,8 @@ public static class CiApi
                 user.PasswordHash = PasswordHasher.Hash(password);
             if (request.Role is { } r)
                 user.Role = r;
+            if (request.DisplayName is { } displayName)
+                user.DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim();
             if (request.ProjectIds is { } ids)
             {
                 user.Projects.Clear();
@@ -217,14 +236,14 @@ public static class CiApi
             return store.TryGetRawYaml(name) is { } raw ? Results.Ok(new { name, yaml = raw }) : Results.NotFound();
         }).RequireAuthorization();
 
-        app.MapPost("/api/jobs", async (SaveWorkflowRequest request, WorkflowStore store, ClaimsPrincipal user) =>
+        app.MapPost("/api/jobs", async (SaveWorkflowRequest request, WorkflowStore store, CiDbContext db, ClaimsPrincipal user) =>
         {
             try
             {
                 var workflow = WorkflowYaml.Parse(request.Yaml);
                 if (store.TryGet(workflow.Name) is not null)
                     return Results.Conflict(new { message = $"Workflow '{workflow.Name}' already exists." });
-                store.Save(workflow.Name, request.Yaml, user.Identity?.Name ?? "anonymous");
+                store.Save(workflow.Name, request.Yaml, await DisplayNameOfAsync(db, user));
                 return Results.Ok(new { name = workflow.Name });
             }
             catch (WorkflowYamlException ex)
@@ -233,11 +252,11 @@ public static class CiApi
             }
         }).RequireAuthorization("Admins");
 
-        app.MapPut("/api/jobs/{name}", async (string name, SaveWorkflowRequest request, WorkflowStore store, ClaimsPrincipal user) =>
+        app.MapPut("/api/jobs/{name}", async (string name, SaveWorkflowRequest request, WorkflowStore store, CiDbContext db, ClaimsPrincipal user) =>
         {
             try
             {
-                store.Save(name, request.Yaml, user.Identity?.Name ?? "anonymous");
+                store.Save(name, request.Yaml, await DisplayNameOfAsync(db, user));
                 return Results.Ok(new { name });
             }
             catch (WorkflowYamlException ex)
@@ -246,8 +265,8 @@ public static class CiApi
             }
         }).RequireAuthorization("Admins");
 
-        app.MapDelete("/api/jobs/{name}", (string name, WorkflowStore store, ClaimsPrincipal user) =>
-            store.Delete(name, user.Identity?.Name ?? "anonymous") ? Results.Ok() : Results.NotFound()).RequireAuthorization("Admins");
+        app.MapDelete("/api/jobs/{name}", async (string name, WorkflowStore store, CiDbContext db, ClaimsPrincipal user) =>
+            store.Delete(name, await DisplayNameOfAsync(db, user)) ? Results.Ok() : Results.NotFound()).RequireAuthorization("Admins");
 
         app.MapGet("/api/jobs/{name}/history", (string name, WorkflowStore store, WorkflowGitStore git, ClaimsPrincipal user) =>
         {
@@ -261,14 +280,14 @@ public static class CiApi
             return git.ReadAt(name, sha) is { } yaml ? Results.Ok(new { name, sha, yaml }) : Results.NotFound();
         }).RequireAuthorization();
 
-        app.MapPost("/api/jobs/{name}/restore", (string name, RestoreRequest request, WorkflowStore store, WorkflowGitStore git, ClaimsPrincipal user) =>
+        app.MapPost("/api/jobs/{name}/restore", async (string name, RestoreRequest request, WorkflowStore store, WorkflowGitStore git, CiDbContext db, ClaimsPrincipal user) =>
         {
             if (store.TryGet(name) is null) return Results.NotFound();
             if (git.ReadAt(name, request.Sha) is not { } yaml)
                 return Results.NotFound(new { message = $"Commit {request.Sha} has no version of '{name}'." });
             try
             {
-                store.Save(name, yaml, user.Identity?.Name ?? "anonymous");
+                store.Save(name, yaml, await DisplayNameOfAsync(db, user));
                 return Results.Ok(new { name, restoredFrom = request.Sha });
             }
             catch (WorkflowYamlException ex)
@@ -277,17 +296,25 @@ public static class CiApi
             }
         }).RequireAuthorization("Admins");
 
-        app.MapPost("/api/jobs/{name}/trigger", async (string name, RunQueueService queue, WorkflowStore store, CiDbContext db, ClaimsPrincipal user) =>
+        app.MapPost("/api/jobs/{name}/trigger", async (string name, RunQueueService queue, WorkflowStore store, CiDbContext db, ClaimsPrincipal user, TriggerRequest? request) =>
         {
             if (!await CanSeeWorkflowAsync(store, db, user, name))
                 return Results.NotFound(new { message = $"Unknown workflow '{name}'." });
             try
             {
-                var run = await queue.TriggerAsync(name, user.Identity?.Name ?? "anonymous");
+                var displayName = await db.Users
+                    .Where(u => u.Username == user.Identity!.Name)
+                    .Select(u => u.DisplayName)
+                    .FirstOrDefaultAsync();
+                var triggeredBy = string.IsNullOrWhiteSpace(displayName) ? user.Identity?.Name ?? "anonymous" : displayName!;
+                var run = await queue.TriggerAsync(name, triggeredBy, request?.Params);
                 return Results.Ok(run);
             }
-            catch (InvalidOperationException)
+            catch (InvalidOperationException ex)
             {
+                // Missing required params come through as InvalidOperationException too.
+                if (ex.Message.StartsWith("Missing required parameter", StringComparison.Ordinal))
+                    return Results.BadRequest(new { message = ex.Message });
                 return Results.NotFound(new { message = $"Unknown workflow '{name}'." });
             }
         }).RequireAuthorization();
@@ -335,6 +362,21 @@ public static class CiApi
             var lines = await logs.ReadAfterAsync(id, jobKey, afterLine, maxLines);
             var next = lines.Count > 0 ? lines[^1].Line + 1 : afterLine;
             return Results.Ok(new LogPage(id, jobKey, next, lines));
+        }).RequireAuthorization();
+
+        app.MapGet("/api/runs/{id:long}/logs/{jobKey}/download", async (long id, string jobKey, string? format, JobLogStore logs, RunRepository repo, HttpContext http) =>
+        {
+            var run = await repo.GetRunAsync(id);
+            if (run is null) return Results.NotFound();
+            var lines = await logs.ReadAfterAsync(id, jobKey, 0);
+            var timestamped = string.Equals(format, "timestamped", StringComparison.OrdinalIgnoreCase);
+            var content = string.Join("\n", lines.Select(l => timestamped
+                ? $"{DateTimeOffset.Parse(l.TimestampUtc).ToLocalTime():yyyy-MM-dd HH:mm:ss.fff}  {l.Text}"
+                : l.Text)) + "\n";
+            var suffix = timestamped ? ".timestamped" : "";
+            var fileName = $"{run.WorkflowName}-{id}-{jobKey}{suffix}.log";
+            http.Response.Headers.ContentDisposition = $"attachment; filename=\"{fileName}\"";
+            return Results.Text(content, "text/plain; charset=utf-8", System.Text.Encoding.UTF8);
         }).RequireAuthorization();
     }
 
@@ -416,6 +458,15 @@ public static class CiApi
             await db.SaveChangesAsync();
             return Results.Ok();
         }).RequireAuthorization("Admins");
+    }
+
+    private static async Task<string> DisplayNameOfAsync(CiDbContext db, ClaimsPrincipal user)
+    {
+        var name = await db.Users
+            .Where(u => u.Username == user.Identity!.Name)
+            .Select(u => u.DisplayName)
+            .FirstOrDefaultAsync();
+        return string.IsNullOrWhiteSpace(name) ? user.Identity?.Name ?? "anonymous" : name;
     }
 
     // -- credentials (Git SCM) --

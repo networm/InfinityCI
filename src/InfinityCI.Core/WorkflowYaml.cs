@@ -65,10 +65,13 @@ public static class WorkflowYaml
             throw new WorkflowYamlException($"Workflow '{dto.Name}' must define 'jobs' (or legacy top-level 'steps').");
         }
 
+        var paramList = ParseParams(dto.Params);
+
         return new Workflow
         {
             Name = dto.Name.Trim(),
             Project = string.IsNullOrWhiteSpace(dto.Project) ? "Default" : dto.Project.Trim(),
+            Params = paramList,
             Scm = dto.Scm is null ? null : new ScmConfig
             {
                 Url = dto.Scm.Url?.Trim() ?? "",
@@ -147,6 +150,43 @@ public static class WorkflowYaml
         }
     }
 
+    /// <summary>Params support "NAME: default" and the full object form; names must be valid env-var names.</summary>
+    private static List<WorkflowParam> ParseParams(Dictionary<string, object>? raw)
+    {
+        var result = new List<WorkflowParam>();
+        if (raw is null)
+            return result;
+
+        foreach (var (name, value) in raw)
+        {
+            if (string.IsNullOrWhiteSpace(name) || !name.All(c => char.IsLetterOrDigit(c) || c == '_'))
+                throw new WorkflowYamlException($"Parameter name '{name}' is invalid; use letters, digits and underscores only.");
+
+            WorkflowParam param;
+            if (value is string defaultValue)
+            {
+                param = new WorkflowParam { Name = name, Default = defaultValue };
+            }
+            else if (value is Dictionary<object, object> spec)
+            {
+                string? Get(object key) => spec.TryGetValue(key, out var v) ? v?.ToString() : null;
+                param = new WorkflowParam
+                {
+                    Name = name,
+                    Default = Get("default") ?? "",
+                    Required = string.Equals(Get("required"), "true", StringComparison.OrdinalIgnoreCase),
+                    Description = Get("description"),
+                };
+            }
+            else
+            {
+                param = new WorkflowParam { Name = name, Default = value?.ToString() ?? "" };
+            }
+            result.Add(param);
+        }
+        return result;
+    }
+
     private sealed class ScmDto
     {
         public string? Url { get; set; }
@@ -159,6 +199,7 @@ public static class WorkflowYaml
     {
         public string? Name { get; set; }
         public string? Project { get; set; }
+        public Dictionary<string, object>? Params { get; set; }
         public ScmDto? Scm { get; set; }
         public Dictionary<string, JobDto>? Jobs { get; set; }
         public string? RunsOn { get; set; }

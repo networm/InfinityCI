@@ -6,10 +6,12 @@ import type { HubConnection } from "@microsoft/signalr";
 import { StatusIcon } from "@/components/status-icon";
 import { api } from "@/lib/api";
 import { formatDateTime, formatDuration } from "@/lib/format";
+import { useResolveUserName } from "@/lib/user-names";
 import { getCiHub } from "@/lib/signalr";
 import type { JobRun, Run, RunsPageItem } from "@/lib/types";
 
 export function RunsListPage() {
+  const resolveName = useResolveUserName();
   const [items, setItems] = useState<RunsPageItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -129,7 +131,7 @@ export function RunsListPage() {
                       ))}
                     </div>
                   </td>
-                  <td className="px-3 py-2 text-[#57606a]">{item.run.triggeredBy || "—"}</td>
+                  <td className="px-3 py-2 text-[#57606a]">{resolveName(item.run.triggeredBy)}</td>
                   <td className="px-3 py-2 text-[#57606a]">{formatDateTime(item.run.createdAt)}</td>
                   <td className="px-3 py-2 text-[#57606a]">{formatDuration(item.run.startedAt, item.run.finishedAt)}</td>
                 </tr>

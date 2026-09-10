@@ -86,6 +86,7 @@ message JobAssignment {
   string scm_ref = 8;
   string scm_username = 9;        // resolved credential (empty when anonymous)
   string scm_password = 10;
+  string params_json = 11;        // run parameters (name -> value), exported as env vars
 }
 
 message MasterToAgent {
