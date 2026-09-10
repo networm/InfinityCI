@@ -73,6 +73,7 @@ builder.Services.AddSignalR().AddJsonProtocol(o =>
 
 builder.Services.AddSingleton<RunEvents>();
 builder.Services.AddSingleton<JobLogStore>();
+builder.Services.AddSingleton<WorkflowGitStore>();
 builder.Services.AddSingleton<WorkflowStore>();
 builder.Services.AddScoped<RunRepository>();
 

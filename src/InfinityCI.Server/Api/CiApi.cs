@@ -6,6 +6,7 @@ using InfinityCI.Server.Agents;
 using InfinityCI.Server.Auth;
 using InfinityCI.Server.Jobs;
 using InfinityCI.Server.Runs;
+using LibGit2Sharp;
 using InfinityCI.Server.Storage;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -22,6 +23,7 @@ public record UpdateUserRequest(string? Password, string? Role, long[]? ProjectI
 public record ProjectRequest(string Name, string? Description);
 public record SaveWorkflowRequest(string Yaml);
 public record EnrollmentRequest(string Name, string[] Labels, int MaxConcurrentBuilds);
+public record RestoreRequest(string Sha);
 public record EnabledRequest(bool Enabled);
 
 public static class CiApi
@@ -33,6 +35,7 @@ public static class CiApi
         MapJobs(app);
         MapRuns(app);
         MapAgents(app);
+        MapGitClone(app);
         return app;
     }
 
@@ -198,7 +201,7 @@ public static class CiApi
                 {
                     w.Name,
                     w.Project,
-                    jobs = w.Jobs.Select(j => new { key = j.Key, runsOn = j.Value.RunsOn, steps = j.Value.Steps.Count }),
+                    jobs = w.Jobs.Select(j => new { key = j.Key, runsOn = j.Value.RunsOn, needs = j.Value.Needs, steps = j.Value.Steps.Count }),
                 }));
         }).RequireAuthorization();
 
@@ -209,14 +212,14 @@ public static class CiApi
             return store.TryGetRawYaml(name) is { } raw ? Results.Ok(new { name, yaml = raw }) : Results.NotFound();
         }).RequireAuthorization();
 
-        app.MapPost("/api/jobs", async (SaveWorkflowRequest request, WorkflowStore store) =>
+        app.MapPost("/api/jobs", async (SaveWorkflowRequest request, WorkflowStore store, ClaimsPrincipal user) =>
         {
             try
             {
                 var workflow = WorkflowYaml.Parse(request.Yaml);
                 if (store.TryGet(workflow.Name) is not null)
                     return Results.Conflict(new { message = $"Workflow '{workflow.Name}' already exists." });
-                store.Save(workflow.Name, request.Yaml);
+                store.Save(workflow.Name, request.Yaml, user.Identity?.Name ?? "anonymous");
                 return Results.Ok(new { name = workflow.Name });
             }
             catch (WorkflowYamlException ex)
@@ -225,11 +228,11 @@ public static class CiApi
             }
         }).RequireAuthorization("Admins");
 
-        app.MapPut("/api/jobs/{name}", async (string name, SaveWorkflowRequest request, WorkflowStore store) =>
+        app.MapPut("/api/jobs/{name}", async (string name, SaveWorkflowRequest request, WorkflowStore store, ClaimsPrincipal user) =>
         {
             try
             {
-                store.Save(name, request.Yaml);
+                store.Save(name, request.Yaml, user.Identity?.Name ?? "anonymous");
                 return Results.Ok(new { name });
             }
             catch (WorkflowYamlException ex)
@@ -238,8 +241,36 @@ public static class CiApi
             }
         }).RequireAuthorization("Admins");
 
-        app.MapDelete("/api/jobs/{name}", (string name, WorkflowStore store) =>
-            store.Delete(name) ? Results.Ok() : Results.NotFound()).RequireAuthorization("Admins");
+        app.MapDelete("/api/jobs/{name}", (string name, WorkflowStore store, ClaimsPrincipal user) =>
+            store.Delete(name, user.Identity?.Name ?? "anonymous") ? Results.Ok() : Results.NotFound()).RequireAuthorization("Admins");
+
+        app.MapGet("/api/jobs/{name}/history", (string name, WorkflowStore store, WorkflowGitStore git, ClaimsPrincipal user) =>
+        {
+            if (store.TryGet(name) is null) return Results.NotFound();
+            return Results.Ok(git.History(name));
+        }).RequireAuthorization();
+
+        app.MapGet("/api/jobs/{name}/blob/{sha}", (string name, string sha, WorkflowStore store, WorkflowGitStore git, ClaimsPrincipal user) =>
+        {
+            if (store.TryGet(name) is null) return Results.NotFound();
+            return git.ReadAt(name, sha) is { } yaml ? Results.Ok(new { name, sha, yaml }) : Results.NotFound();
+        }).RequireAuthorization();
+
+        app.MapPost("/api/jobs/{name}/restore", (string name, RestoreRequest request, WorkflowStore store, WorkflowGitStore git, ClaimsPrincipal user) =>
+        {
+            if (store.TryGet(name) is null) return Results.NotFound();
+            if (git.ReadAt(name, request.Sha) is not { } yaml)
+                return Results.NotFound(new { message = $"Commit {request.Sha} has no version of '{name}'." });
+            try
+            {
+                store.Save(name, yaml, user.Identity?.Name ?? "anonymous");
+                return Results.Ok(new { name, restoredFrom = request.Sha });
+            }
+            catch (WorkflowYamlException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+        }).RequireAuthorization("Admins");
 
         app.MapPost("/api/jobs/{name}/trigger", async (string name, RunQueueService queue, WorkflowStore store, CiDbContext db, ClaimsPrincipal user) =>
         {
@@ -367,6 +398,86 @@ public static class CiApi
             await db.SaveChangesAsync();
             return Results.Ok();
         }).RequireAuthorization("Admins");
+    }
+
+    // -- read-only git clone (dumb HTTP protocol) --
+
+    private static void MapGitClone(IEndpointRouteBuilder app)
+    {
+        static bool CheckAuth(CiDbContext db, string? authHeader)
+        {
+            if (authHeader is null || !authHeader.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
+                return false;
+            try
+            {
+                var decoded = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(authHeader["Basic ".Length..]));
+                var separator = decoded.IndexOf(':');
+                if (separator < 0) return false;
+                var username = decoded[..separator];
+                var password = decoded[(separator + 1)..];
+                var user = db.Users.FirstOrDefault(u => u.Username == username);
+                return user is not null && Auth.PasswordHasher.Verify(password, user.PasswordHash);
+            }
+            catch (FormatException)
+            {
+                return false;
+            }
+        }
+
+        app.Map("/git/jobs/info/refs", async (HttpContext http, CiDbContext db, WorkflowGitStore git) =>
+        {
+            if (!CheckAuth(db, http.Request.Headers.Authorization))
+            {
+                http.Response.Headers.WWWAuthenticate = "Basic realm=infinityci";
+                http.Response.StatusCode = 401;
+                return;
+            }
+            if (git.ReadHeadRef() is not { } head)
+            {
+                http.Response.StatusCode = 404;
+                return;
+            }
+            http.Response.ContentType = "text/plain; charset=utf-8";
+            await http.Response.WriteAsync($"{head}\trefs/heads/master\n");
+        });
+
+        app.Map("/git/jobs/HEAD", async (HttpContext http, WorkflowGitStore git) =>
+        {
+            await http.Response.WriteAsync("ref: refs/heads/master\n");
+        }).AllowAnonymous();
+
+        app.Map("/git/jobs/objects/info/packs", async (HttpContext http, CiDbContext db, WorkflowGitStore git) =>
+        {
+            if (!CheckAuth(db, http.Request.Headers.Authorization))
+            {
+                http.Response.Headers.WWWAuthenticate = "Basic realm=infinityci";
+                http.Response.StatusCode = 401;
+                return;
+            }
+            http.Response.ContentType = "text/plain; charset=utf-8";
+            foreach (var packName in git.ReadPackNames())
+            {
+                await http.Response.WriteAsync("P " + packName + "\n");
+            }
+            await http.Response.WriteAsync("\n");
+        });
+
+        app.Map("/git/jobs/objects/{*path}", async (string path, HttpContext http, CiDbContext db, WorkflowGitStore git) =>
+        {
+            if (!CheckAuth(db, http.Request.Headers.Authorization))
+            {
+                http.Response.Headers.WWWAuthenticate = "Basic realm=infinityci";
+                http.Response.StatusCode = 401;
+                return;
+            }
+            if (!path.Contains("..") && git.ReadObjectFile(path) is { } bytes)
+            {
+                http.Response.ContentType = "application/octet-stream";
+                await http.Response.Body.WriteAsync(bytes);
+                return;
+            }
+            http.Response.StatusCode = 404;
+        });
     }
 
     // -- visibility helpers --

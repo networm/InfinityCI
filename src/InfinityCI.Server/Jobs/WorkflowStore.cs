@@ -8,7 +8,7 @@ namespace InfinityCI.Server.Jobs;
 /// Loads workflow definitions from {DataDir}/jobs/*.yml and hot-reloads on file
 /// changes. Writes a sample workflow on first run when the directory is empty.
 /// </summary>
-public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, ILogger<WorkflowStore> logger) : IHostedService, IDisposable
+public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, WorkflowGitStore gitStore, ILogger<WorkflowStore> logger) : IHostedService, IDisposable
 {
     private static readonly string[] Extensions = [".yml", ".yaml"];
 
@@ -29,8 +29,10 @@ public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, ILo
     public Task StartAsync(CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(_options.JobsDir);
+        gitStore.EnsureRepository();
         EnsureSampleWorkflow();
         Reload();
+        gitStore.CommitAll("sync workflow files", "system");
         StartWatcher();
         return Task.CompletedTask;
     }
@@ -42,7 +44,7 @@ public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, ILo
     }
 
     /// <summary>Writes/updates a workflow file by name (job editor save path). Returns the parsed definition.</summary>
-    public Workflow Save(string name, string yaml)
+    public Workflow Save(string name, string yaml, string author = "system")
     {
         var parsed = WorkflowYaml.Parse(yaml);
         if (!parsed.Name.Equals(name.Trim(), StringComparison.OrdinalIgnoreCase))
@@ -50,10 +52,11 @@ public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, ILo
         Directory.CreateDirectory(_options.JobsDir);
         File.WriteAllText(Path.Combine(_options.JobsDir, WorkflowStore.Sanitize(name) + ".yml"), yaml);
         Reload();
+        gitStore.CommitAll($"update workflow {parsed.Name}", author);
         return parsed;
     }
 
-    public bool Delete(string name)
+    public bool Delete(string name, string author = "system")
     {
         foreach (var extension in Extensions)
         {
@@ -62,6 +65,7 @@ public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, ILo
             {
                 File.Delete(path);
                 Reload();
+                gitStore.CommitAll($"delete workflow {name}", author);
                 return true;
             }
         }

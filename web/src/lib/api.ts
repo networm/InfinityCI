@@ -58,6 +58,19 @@ export const api = {
     request<{ name: string }>(`/api/jobs/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ yaml }) }),
   deleteJob: (name: string) =>
     request<unknown>(`/api/jobs/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  jobHistory: (name: string) =>
+    request<{ sha: string; message: string; author: string; when: string }[]>(
+      `/api/jobs/${encodeURIComponent(name)}/history`,
+    ),
+  jobBlob: (name: string, sha: string) =>
+    request<{ name: string; sha: string; yaml: string }>(
+      `/api/jobs/${encodeURIComponent(name)}/blob/${sha}`,
+    ),
+  restoreJob: (name: string, sha: string) =>
+    request<{ name: string; restoredFrom: string }>(`/api/jobs/${encodeURIComponent(name)}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ sha }),
+    }),
   trigger: (name: string) =>
     request<Run>(`/api/jobs/${encodeURIComponent(name)}/trigger`, { method: "POST" }),
 

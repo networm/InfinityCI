@@ -66,6 +66,7 @@ export interface RunsPageItem {
 export interface WorkflowJobInfo {
   key: string;
   runsOn: string;
+  needs: string[];
   steps: number;
 }
 
