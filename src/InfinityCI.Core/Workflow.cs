@@ -6,6 +6,9 @@ public sealed class Workflow
 {
     public required string Name { get; init; }
     public string Project { get; init; } = "Default";
+
+    /// <summary>Optional Git source checkout; steps run inside the working copy.</summary>
+    public ScmConfig? Scm { get; init; }
     public required IReadOnlyDictionary<string, WorkflowJob> Jobs { get; init; }
 }
 

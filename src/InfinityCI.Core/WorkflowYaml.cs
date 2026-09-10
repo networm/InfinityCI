@@ -69,6 +69,13 @@ public static class WorkflowYaml
         {
             Name = dto.Name.Trim(),
             Project = string.IsNullOrWhiteSpace(dto.Project) ? "Default" : dto.Project.Trim(),
+            Scm = dto.Scm is null ? null : new ScmConfig
+            {
+                Url = dto.Scm.Url?.Trim() ?? "",
+                Branch = string.IsNullOrWhiteSpace(dto.Scm.Branch) ? null : dto.Scm.Branch.Trim(),
+                Ref = string.IsNullOrWhiteSpace(dto.Scm.Ref) ? null : dto.Scm.Ref.Trim(),
+                Credentials = string.IsNullOrWhiteSpace(dto.Scm.Credentials) ? null : dto.Scm.Credentials.Trim(),
+            },
             Jobs = jobs,
         };
     }
@@ -140,10 +147,19 @@ public static class WorkflowYaml
         }
     }
 
+    private sealed class ScmDto
+    {
+        public string? Url { get; set; }
+        public string? Branch { get; set; }
+        public string? Ref { get; set; }
+        public string? Credentials { get; set; }
+    }
+
     private sealed class WorkflowYamlDto
     {
         public string? Name { get; set; }
         public string? Project { get; set; }
+        public ScmDto? Scm { get; set; }
         public Dictionary<string, JobDto>? Jobs { get; set; }
         public string? RunsOn { get; set; }
         public Dictionary<string, string>? Env { get; set; }
