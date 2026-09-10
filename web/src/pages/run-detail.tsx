@@ -5,6 +5,7 @@ import { Ban, ChevronDown, ChevronRight } from "lucide-react";
 
 import { StatusIcon } from "@/components/status-icon";
 import { api } from "@/lib/api";
+import { layoutDag, DAG_NODE_HEIGHT } from "@/lib/dag";
 import { formatDuration, formatLogTimestamp } from "@/lib/format";
 import { getCiHub } from "@/lib/signalr";
 import type { JobRun, LogLine, Run, RunSubscription } from "@/lib/types";
@@ -151,6 +152,13 @@ export function BuildDetailPage() {
         <div className="rounded-md border border-[#ffc1bc] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">{error}</div>
       )}
 
+      {/* Job dependency DAG (GitHub style) — rendered when the workflow uses needs */}
+      <DagView
+        jobs={jobs}
+        selected={currentJob?.jobKey ?? null}
+        onSelect={(jobKey) => setSelectedJob(jobKey)}
+      />
+
       <div className="flex gap-4">
         {/* Parallel jobs sidebar */}
         <aside className="w-60 shrink-0">
@@ -191,6 +199,76 @@ export function BuildDetailPage() {
           )}
         </section>
       </div>
+    </div>
+  );
+}
+
+const DAG_STATUS_STROKE: Record<string, string> = {
+  Success: "#1a7f37",
+  Failed: "#cf222e",
+  Running: "#9a6700",
+  Cancelled: "#57606a",
+  Queued: "#d1d9e0",
+  Pending: "#d1d9e0",
+  Skipped: "#d1d9e0",
+};
+
+function DagView({
+  jobs,
+  selected,
+  onSelect,
+}: {
+  jobs: JobRun[];
+  selected: string | null;
+  onSelect: (jobKey: string) => void;
+}) {
+  const layout = useMemo(() => layoutDag(jobs), [jobs]);
+  if (!layout) return null;
+
+  return (
+    <div className="overflow-x-auto rounded-md border border-[#d0d7de] bg-white p-4">
+      <svg
+        width={layout.width + 8}
+        height={layout.height + 8}
+        role="img"
+        aria-label="Job 依赖图"
+        style={{ minWidth: layout.width + 8 }}
+      >
+        {layout.edges.map((edge) => (
+          <polyline
+            key={`${edge.from}->${edge.to}`}
+            points={edge.points}
+            fill="none"
+            stroke={selected === edge.to ? "#0969da" : "#d1d9e0"}
+            strokeWidth={selected === edge.to ? 2 : 1.5}
+          />
+        ))}
+        {layout.nodes.map((node) => {
+          const isSelected = node.jobKey === selected;
+          const stroke = DAG_STATUS_STROKE[node.status] ?? "#d1d9e0";
+          return (
+            <g
+              key={node.jobKey}
+              transform={`translate(${node.x + 4}, ${node.y + 4})`}
+              onClick={() => onSelect(node.jobKey)}
+              style={{ cursor: "pointer" }}
+            >
+              <rect
+                width={132}
+                height={DAG_NODE_HEIGHT}
+                rx={6}
+                fill={isSelected ? "#ddf4ff" : "#f6f8fa"}
+                stroke={isSelected ? "#0969da" : stroke}
+                strokeWidth={isSelected ? 2 : 1.5}
+              />
+              <circle cx={18} cy={DAG_NODE_HEIGHT / 2} r={5} fill={stroke} />
+              <text x={32} y={DAG_NODE_HEIGHT / 2 + 4} fontSize={12} fill="#24292f" fontFamily="inherit">
+                {node.jobKey}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }

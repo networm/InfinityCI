@@ -21,6 +21,8 @@ export interface JobRun {
   runId: number;
   jobKey: string;
   runsOn: string;
+  /** Job keys this job waits for (GitHub `needs`). */
+  needs: string[];
   agentId: string | null;
   status: JobRunStatus;
   createdAt: string;
