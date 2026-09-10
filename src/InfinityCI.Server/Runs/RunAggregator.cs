@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using InfinityCI.Core;
 using InfinityCI.Server.Agents;
 using InfinityCI.Server.Storage;
@@ -18,6 +19,10 @@ public sealed class RunAggregator(
     LocalJobRunQueue localQueue,
     ILogger<RunAggregator> logger)
 {
+    // Evaluations mutate shared run state (cascade skips, dispatch); concurrent
+    // evaluations for the same run would race their read-modify-write cycles.
+    private readonly ConcurrentDictionary<long, SemaphoreSlim> _runGates = new();
+
     public async Task OnJobRunTerminalAsync(JobRun jobRun)
     {
         if (!jobRun.Status.IsTerminal())
@@ -28,28 +33,57 @@ public sealed class RunAggregator(
     /// <summary>Applies needs gating to all queued job runs of the run, then recomputes run status.</summary>
     public async Task EvaluateRunAsync(long runId)
     {
+        var gate = _runGates.GetOrAdd(runId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            await EvaluateCoreAsync(runId);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task EvaluateCoreAsync(long runId)
+    {
         using var scope = scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<RunRepository>();
 
-        var run = await repo.GetRunAsync(runId);
-        if (run is null || run.IsTerminal)
-            return;
+        // Sibling job runs finalize concurrently; a single pass can observe a
+        // snapshot that is already stale, so re-evaluate until nothing changes.
+        for (var pass = 0; pass < 10; pass++)
+        {
+            var run = await repo.GetRunAsync(runId);
+            if (run is null || run.IsTerminal)
+                return;
+            var changed = await EvaluatePassAsync(repo, runId);
+            if (!changed)
+                break;
+        }
+
+        await RecomputeAsync(runId);
+    }
+
+    /// <summary>One cascade+dispatch pass. Returns true when any job run changed.</summary>
+    private async Task<bool> EvaluatePassAsync(RunRepository repo, long runId)
+    {
         var jobRuns = await repo.GetJobRunsAsync(runId);
         if (jobRuns.Count == 0)
-            return;
+            return false;
 
         var byKey = jobRuns.ToDictionary(j => j.JobKey, StringComparer.OrdinalIgnoreCase);
+        var changed = false;
 
         // 1) Cascade "skipped" from failed/cancelled roots to transitive dependents.
-        var poison = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var job in jobRuns.Where(j => j.Status is JobRunStatus.Failed or JobRunStatus.Cancelled))
-            poison.Add(job.JobKey);
-
-        var pendingSkip = new Queue<string>(poison);
-        var skipChanged = false;
+        var pendingSkip = new Queue<string>(
+            jobRuns.Where(j => j.Status is JobRunStatus.Failed or JobRunStatus.Cancelled).Select(j => j.JobKey));
+        var poisoned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         while (pendingSkip.Count > 0)
         {
             var failedKey = pendingSkip.Dequeue();
+            if (!poisoned.Add(failedKey))
+                continue;
             foreach (var dependent in jobRuns.Where(j =>
                          j.Status == JobRunStatus.Queued &&
                          j.Needs.Contains(failedKey, StringComparer.OrdinalIgnoreCase)))
@@ -60,12 +94,11 @@ public sealed class RunAggregator(
                 await events.PublishJobRunUpdatedAsync(dependent);
                 await logStore.AppendAndPublishAsync(events, runId, dependent.JobKey, 0,
                     $"[server] job '{dependent.JobKey}' skipped: dependency '{failedKey}' did not succeed.");
-                skipChanged = true;
+                changed = true;
                 pendingSkip.Enqueue(dependent.JobKey);
                 logger.LogInformation("Job run {JobRunId} ({Job}) skipped due to failed dependency '{Dependency}'",
                     dependent.Id, dependent.JobKey, failedKey);
             }
-            _ = poison; // poison set retained for clarity; queue drives the cascade
         }
 
         // 2) Dispatch queued job runs whose needs are all satisfied.
@@ -75,6 +108,13 @@ public sealed class RunAggregator(
                 byKey.TryGetValue(need, out var dep) && dep.Status == JobRunStatus.Success);
             if (!allSucceeded)
                 continue;
+
+            // Mark Queued -> Running before enqueueing so a concurrent pass (or a
+            // duplicate channel message) cannot dispatch the same job run twice.
+            jobRun.Status = JobRunStatus.Running;
+            jobRun.StartedAt = DateTimeOffset.UtcNow;
+            await repo.SaveJobRunTransitionAsync(jobRun);
+            await events.PublishJobRunUpdatedAsync(jobRun);
 
             if (jobRun.RunsOn.StartsWith("agent", StringComparison.OrdinalIgnoreCase))
             {
@@ -87,11 +127,11 @@ public sealed class RunAggregator(
             {
                 localQueue.TryWrite(jobRun);
             }
+            changed = true;
             logger.LogInformation("Dependencies met for job run {JobRunId} ({Job}); dispatched", jobRun.Id, jobRun.JobKey);
         }
 
-        // 3) Recompute run status from job run states.
-        await RecomputeAsync(runId);
+        return changed;
     }
 
     public async Task RecomputeAsync(long runId)

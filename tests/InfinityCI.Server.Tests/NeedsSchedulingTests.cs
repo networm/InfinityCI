@@ -147,13 +147,14 @@ public class NeedsSchedulingTests : IDisposable
         var run = await _queue.TriggerAsync("cascade", "tester");
         var finished = await WaitForRunTerminalAsync(run.Id);
 
-        Assert.Equal(RunStatus.Failed, finished.Status);
         var jobRuns = await _repo.GetJobRunsAsync(run.Id);
-        Assert.Equal(JobRunStatus.Success, jobRuns.Single(j => j.JobKey == "ok").Status);
-        Assert.Equal(JobRunStatus.Failed, jobRuns.Single(j => j.JobKey == "boom").Status);
-        Assert.Equal(JobRunStatus.Skipped, jobRuns.Single(j => j.JobKey == "child").Status);
-        Assert.Equal(JobRunStatus.Skipped, jobRuns.Single(j => j.JobKey == "grandchild").Status);
-        Assert.Equal(JobRunStatus.Success, jobRuns.Single(j => j.JobKey == "independent").Status);
+        var dump = string.Join(" | ", jobRuns.Select(j => $"{j.JobKey}={j.Status}(exit={j.ExitCode},needs=[{string.Join(",", j.Needs)}])"));
+        Assert.True(finished.Status == RunStatus.Failed, $"run status {finished.Status}: [{dump}]");
+        Assert.True(jobRuns.Single(j => j.JobKey == "ok").Status == JobRunStatus.Success, $"ok: [{dump}]");
+        Assert.True(jobRuns.Single(j => j.JobKey == "boom").Status == JobRunStatus.Failed, $"boom: [{dump}]");
+        Assert.True(jobRuns.Single(j => j.JobKey == "child").Status == JobRunStatus.Skipped, $"child: [{dump}]");
+        Assert.True(jobRuns.Single(j => j.JobKey == "grandchild").Status == JobRunStatus.Skipped, $"grandchild: [{dump}]");
+        Assert.True(jobRuns.Single(j => j.JobKey == "independent").Status == JobRunStatus.Success, $"independent: [{dump}]");
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using InfinityCI.Core;
+using Microsoft.EntityFrameworkCore;
 using InfinityCI.Server.Agents;
 using InfinityCI.Server.Jobs;
 using InfinityCI.Server.Storage;
@@ -53,6 +54,10 @@ public sealed class RunQueueService(
         };
         await repo.AddRunAsync(run, ct);
 
+        // Phase 1: persist every job run BEFORE dispatching anything. A fast job
+        // finishing while later job runs are still being created would let the
+        // aggregator see a partial (all-terminal) view and finalize the run early.
+        var created = new List<JobRun>(workflow.Jobs.Count);
         foreach (var (jobKey, job) in workflow.Jobs.OrderBy(j => j.Key, StringComparer.OrdinalIgnoreCase))
         {
             var jobRun = new JobRun
@@ -66,11 +71,13 @@ public sealed class RunQueueService(
                 Steps = job.Steps.Select(s => new JobStepResult { Name = s.Name, Status = JobRunStatus.Pending }).ToList(),
             };
             await repo.AddJobRunAsync(jobRun, ct);
-            // Needs-gated jobs stay Queued until the aggregator dispatches them.
-            if (job.Needs.Count == 0)
-                Enqueue(jobRun, job);
+            created.Add(jobRun);
             await events.PublishJobRunUpdatedAsync(jobRun);
         }
+
+        // Phase 2: dispatch under the aggregator's per-run lock — the single
+        // dispatch path for needs-free and needs-released jobs alike.
+        await aggregator.EvaluateRunAsync(run.Id);
 
         // NOTE: no trailing save here — fast jobs may already have finalized the
         // run via the aggregator; writing our in-memory copy would stomp it.
@@ -140,15 +147,27 @@ public sealed class RunQueueService(
     {
         await foreach (var channelJobRun in _localQueue.ReadAllAsync(stoppingToken))
         {
-            // The channel copy can be stale (e.g. cancelled while queued) — the DB is authoritative.
+            // Atomic claim: a conditional UPDATE closes the double-dispatch and
+            // cancel races (0 rows = the job run was finalized/skipped meanwhile).
             JobRun? jobRun;
             using (var scope = scopeFactory.CreateScope())
             {
+                var db = scope.ServiceProvider.GetRequiredService<CiDbContext>();
+                var claimed = await db.JobRuns
+                    .Where(j => j.Id == channelJobRun.Id
+                                && (j.Status == JobRunStatus.Queued || j.Status == JobRunStatus.Running))
+                    .ExecuteUpdateAsync(
+                        s => s.SetProperty(j => j.Status, JobRunStatus.Running)
+                              .SetProperty(j => j.StartedAt, DateTimeOffset.UtcNow),
+                        stoppingToken);
+                if (claimed == 0)
+                    continue;
+
                 jobRun = await scope.ServiceProvider.GetRequiredService<RunRepository>()
                     .GetJobRunAsync(channelJobRun.Id, stoppingToken);
             }
 
-            if (jobRun is not { Status: JobRunStatus.Queued })
+            if (jobRun is null)
                 continue;
 
             var job = await ResolveJobAsync(jobRun, stoppingToken);
