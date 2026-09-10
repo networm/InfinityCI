@@ -8,10 +8,10 @@ using InfinityCI.Grpc;
 namespace InfinityCI.Agent;
 
 /// <summary>
-/// Executes one assigned build locally: runs the job's steps as child
-/// processes and streams logs/steps/finish back to the master over the
-/// agent's outgoing message channel. Byte offsets mirror what the master
-/// will append, so step badges and resume logic line up end to end.
+/// Executes one assigned job run locally: runs the workflow job's steps as
+/// child processes and streams logs/steps/finish back to the master over the
+/// agent's outgoing message channel. Line offsets are line indexes; the
+/// master stamps timestamps and owns the log file.
 /// </summary>
 public sealed class RemoteBuildRunner(
     AgentOptions options,
@@ -19,111 +19,119 @@ public sealed class RemoteBuildRunner(
     ConcurrentDictionary<long, CancellationTokenSource> cancellations,
     ILogger<RemoteBuildRunner> logger)
 {
-    private static readonly Encoding Utf8 = Encoding.UTF8;
-
-    private sealed class OffsetTracker
-    {
-        public long Value;
-        public long Advance(string line)
-        {
-            var start = Value;
-            Value += Utf8.GetByteCount(line) + 1;
-            return start;
-        }
-    }
-
     public async Task RunAsync(JobAssignment assignment)
     {
-        var buildId = assignment.BuildId;
+        var jobRunId = assignment.JobRunId;
         var cts = new CancellationTokenSource();
-        cancellations[buildId] = cts;
-        var offset = new OffsetTracker();
-        var lastExitCode = 0;
+        cancellations[jobRunId] = cts;
 
         try
         {
-            var job = JobYaml.Parse(assignment.JobYaml);
-            var workspace = Path.Combine(options.WorkspacesDir, buildId.ToString());
+            var workflow = WorkflowYaml.Parse(assignment.WorkflowYaml);
+            var job = workflow.Jobs.GetValueOrDefault(assignment.JobKey)
+                ?? throw new InvalidOperationException($"Job '{assignment.JobKey}' not in workflow '{workflow.Name}'.");
+            var jobKey = assignment.JobKey;
+            var workspace = Path.Combine(options.WorkspacesDir, $"{assignment.RunId}-{Sanitize(jobKey)}");
             Directory.CreateDirectory(workspace);
 
-            var intro = $"[agent {Environment.MachineName}] build {buildId} started.";
-            var introOffset = offset.Advance(intro);
-            await SendLog(buildId, introOffset, intro);
+            var intro = $"[agent {Environment.MachineName}] job '{jobKey}' of run {assignment.RunId} started.";
+            await SendLog(assignment.RunId, jobRunId, jobKey, 0, 0, intro);
 
-            var overall = BuildStatus.Success;
+            var overall = JobRunStatus.Success;
+            var lastExitCode = 0;
+            var cursor = new LineCursor(1); // line 0 = intro
             for (var i = 0; i < job.Steps.Count; i++)
             {
                 var step = job.Steps[i];
-                var startOffset = offset.Value;
-                await SendStep(buildId, i, BuildStepStatus.Running, startOffset, startOffset);
+                var startLine = cursor.Value;
+                await SendStep(assignment.RunId, jobRunId, jobKey, i, JobRunStatus.Running, startLine, startLine);
 
-                lastExitCode = await RunStepAsync(buildId, job, step, workspace, cts.Token, offset);
+                lastExitCode = await RunStepAsync(assignment, job, step, workspace, cts.Token, cursor, i);
 
                 var failed = lastExitCode != 0;
                 var stepStatus = cts.IsCancellationRequested
-                    ? BuildStepStatus.Cancelled
-                    : failed ? BuildStepStatus.Failed : BuildStepStatus.Success;
-                await SendStep(buildId, i, stepStatus, startOffset, offset.Value, lastExitCode);
+                    ? JobRunStatus.Cancelled
+                    : failed ? JobRunStatus.Failed : JobRunStatus.Success;
+                await SendStep(assignment.RunId, jobRunId, jobKey, i, stepStatus, startLine, cursor.Value, lastExitCode);
 
                 if (cts.IsCancellationRequested)
                 {
-                    overall = BuildStatus.Cancelled;
+                    overall = JobRunStatus.Cancelled;
                     break;
                 }
                 if (failed && !step.ContinueOnError)
                 {
-                    overall = BuildStatus.Failed;
+                    overall = JobRunStatus.Failed;
                     break;
                 }
             }
 
-            if (overall == BuildStatus.Failed)
-                logger.LogInformation("Build {BuildId} failed with exit code {Exit}", buildId, lastExitCode);
-
             await Send(new AgentToMaster
             {
-                BuildFinished = new BuildFinished
+                JobFinished = new JobFinished
                 {
-                    BuildId = buildId,
+                    RunId = assignment.RunId,
+                    JobRunId = jobRunId,
+                    JobKey = jobKey,
                     Status = overall.ToString(),
-                    ExitCode = overall == BuildStatus.Success ? 0 : lastExitCode,
+                    ExitCode = overall == JobRunStatus.Success ? 0 : lastExitCode,
                 },
             });
+            logger.LogInformation("Job run {JobRunId} (run {RunId}, {Job}) finished: {Status}",
+                jobRunId, assignment.RunId, jobKey, overall);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
             await Send(new AgentToMaster
             {
-                BuildFinished = new BuildFinished { BuildId = buildId, Status = nameof(BuildStatus.Cancelled) },
+                JobFinished = new JobFinished
+                {
+                    RunId = assignment.RunId,
+                    JobRunId = jobRunId,
+                    JobKey = assignment.JobKey,
+                    Status = nameof(JobRunStatus.Cancelled),
+                },
             });
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Build {BuildId} crashed the runner", buildId);
-            var errorLine = $"[agent] internal error: {ex.Message}";
-            await SendLog(buildId, offset.Advance(errorLine), errorLine);
+            logger.LogError(ex, "Job run {JobRunId} crashed the runner", jobRunId);
             await Send(new AgentToMaster
             {
-                BuildFinished = new BuildFinished { BuildId = buildId, Status = nameof(BuildStatus.Failed), ExitCode = lastExitCode },
+                JobFinished = new JobFinished
+                {
+                    RunId = assignment.RunId,
+                    JobRunId = jobRunId,
+                    JobKey = assignment.JobKey,
+                    Status = nameof(JobRunStatus.Failed),
+                },
             });
         }
         finally
         {
-            cancellations.TryRemove(buildId, out _);
+            cancellations.TryRemove(jobRunId, out _);
             cts.Dispose();
         }
     }
 
-    public bool TryCancel(long buildId)
+    public bool TryCancel(long jobRunId)
     {
-        if (!cancellations.TryGetValue(buildId, out var cts))
+        if (!cancellations.TryGetValue(jobRunId, out var cts))
             return false;
         cts.Cancel();
         return true;
     }
 
+    private sealed class LineCursor(long initial)
+    {
+        private long _value = initial;
+        public long Value => Interlocked.Read(ref _value);
+        public long Take() => Interlocked.Increment(ref _value) - 1;
+    }
+
     private async Task<int> RunStepAsync(
-        long buildId, JobDefinition job, JobStep step, string workspace, CancellationToken ct, OffsetTracker offset)
+        JobAssignment assignment, WorkflowJob job, JobStep step, string workspace,
+        CancellationToken ct, LineCursor cursor, int stepIndex)
     {
         var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (key, value) in job.Environment)
@@ -131,16 +139,16 @@ public sealed class RemoteBuildRunner(
         foreach (var (key, value) in step.Environment)
             env[key] = value;
         env["CI"] = "true";
-        env["INFINITY_BUILD_ID"] = buildId.ToString();
-        env["INFINITY_JOB_NAME"] = job.Name;
+        env["INFINITY_RUN_ID"] = assignment.RunId.ToString();
+        env["INFINITY_JOB_KEY"] = assignment.JobKey;
 
         var psi = ShellResolver.CreateStartInfo(step.Command, step.Shell, workspace, env);
         using var process = new Process { StartInfo = psi };
         process.Start();
         process.StandardInput.Close(); // children see EOF on stdin instead of the agent's console
 
-        var pumpOut = PumpAsync(process.StandardOutput, buildId, offset);
-        var pumpErr = PumpAsync(process.StandardError, buildId, offset);
+        var pumpOut = PumpAsync(process.StandardOutput, assignment, cursor, stepIndex);
+        var pumpErr = PumpAsync(process.StandardError, assignment, cursor, stepIndex);
 
         using var killOnCancel = ct.Register(() =>
         {
@@ -150,7 +158,7 @@ public sealed class RemoteBuildRunner(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Failed to kill process tree for build {BuildId}", buildId);
+                logger.LogWarning(ex, "Failed to kill process tree for job run {JobRunId}", assignment.JobRunId);
             }
         });
 
@@ -160,7 +168,6 @@ public sealed class RemoteBuildRunner(
         }
         catch (OperationCanceledException)
         {
-            // Cancellation killed the process; drain remaining output, then propagate.
             try
             {
                 await process.WaitForExitAsync(CancellationToken.None);
@@ -177,28 +184,45 @@ public sealed class RemoteBuildRunner(
         return process.ExitCode;
     }
 
-    private async Task PumpAsync(StreamReader reader, long buildId, OffsetTracker offset)
+    private async Task PumpAsync(
+        StreamReader reader, JobAssignment assignment, LineCursor cursor, int stepIndex)
     {
         // No cancellation token: the stream ends when the (possibly killed) process closes it.
-        while (await reader.ReadLineAsync() is { } line)
-            await SendLog(buildId, offset.Advance(line), line);
+        while (await reader.ReadLineAsync() is { } text)
+            await SendLog(assignment.RunId, assignment.JobRunId, assignment.JobKey, stepIndex, cursor.Take(), text);
     }
 
-    private Task SendLog(long buildId, long offset, string text) =>
+    private static string Sanitize(string jobKey)
+    {
+        var chars = jobKey.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_').ToArray();
+        return new string(chars);
+    }
+
+    private Task SendLog(long runId, long jobRunId, string jobKey, int stepIndex, long line, string text) =>
         outgoing.SendAsync(new AgentToMaster
         {
-            LogChunk = new LogChunk { BuildId = buildId, Offset = offset, Text = text },
+            LogChunk = new LogChunk
+            {
+                RunId = runId,
+                JobRunId = jobRunId,
+                JobKey = jobKey,
+                StepIndex = stepIndex,
+                Offset = line,
+                Text = text,
+            },
         });
 
-    private Task SendStep(long buildId, int index, BuildStepStatus status, long startOffset, long endOffset, int? exitCode = null)
+    private Task SendStep(long runId, long jobRunId, string jobKey, int index, JobRunStatus status, long startLine, long endLine, int? exitCode = null)
     {
         var update = new StepUpdate
         {
-            BuildId = buildId,
+            RunId = runId,
+            JobRunId = jobRunId,
+            JobKey = jobKey,
             StepIndex = index,
             Status = status.ToString(),
-            StartOffset = startOffset,
-            EndOffset = endOffset,
+            StartLine = startLine,
+            EndLine = endLine,
         };
         if (exitCode is { } code)
             update.ExitCode = code;

@@ -3,95 +3,177 @@ using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using InfinityCI.Core;
 using InfinityCI.Server;
-using InfinityCI.Server.Api;
-using InfinityCI.Server.Builds;
+using InfinityCI.Server.Storage;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace InfinityCI.Server.Tests;
 
+/// <summary>
+/// End-to-end API tests: auth, project visibility, workflow CRUD and triggers,
+/// plus the SignalR run subscription — all against a real hosted server.
+/// </summary>
 public class CiApiTests : IDisposable
 {
     private readonly string _dir = TestEnv.CreateTempDir();
     private readonly WebApplicationFactory<Program> _factory;
-    private readonly HttpClient _client;
+    private readonly HttpClient _admin;      // seeded SuperAdmin
 
     public CiApiTests()
     {
         Directory.CreateDirectory(Path.Combine(_dir, "jobs"));
-        File.WriteAllText(Path.Combine(_dir, "jobs", "api-job.yml"),
-            "name: api-job\ndescription: rest test\nsteps:\n  - command: echo rest-ok");
+        File.WriteAllText(Path.Combine(_dir, "jobs", "api-job.yml"), """
+            name: api-job
+            project: Default
+            jobs:
+              build:
+                steps:
+                  - command: echo api-ok
+            """);
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(b => b.UseSetting("InfinityCI:DataDir", _dir));
-        _client = _factory.CreateClient();
+        _admin = _factory.CreateClient();
+        Login(_admin, "admin", "admin").Wait();
     }
 
-    private BuildQueueService Queue() => _factory.Services.GetRequiredService<BuildQueueService>();
-
-    [Fact]
-    public async Task GetJobs_ReturnsParsedDefinitions()
+    private static async Task Login(HttpClient client, string username, string password)
     {
-        var jobs = await _client.GetFromJsonAsync<List<JobDefinitionResponse>>("/api/jobs");
-        var job = Assert.Single(jobs!);
-        Assert.Equal("api-job", job.Name);
-        Assert.Single(job.Steps);
+        var response = await client.PostAsJsonAsync("/api/auth/login", new { username, password });
+        response.EnsureSuccessStatusCode();
     }
 
-    [Fact]
-    public async Task GetUnknownJob_Returns404()
+    private async Task<HttpClient> NewUserAsync(string username, string password, string role, long[] projectIds)
     {
-        var response = await _client.GetAsync("/api/jobs/nope");
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var create = await _admin.PostAsJsonAsync("/api/users", new { username, password, role, projectIds });
+        create.EnsureSuccessStatusCode();
+        var client = _factory.CreateClient();
+        await Login(client, username, password);
+        return client;
     }
 
     [Fact]
-    public async Task Trigger_Build_CompletesAndLogsArePaged()
+    public async Task Anonymous_Requests_AreUnauthorized()
     {
-        var trigger = await _client.PostAsync("/api/jobs/api-job/trigger", null);
-        Assert.Equal(HttpStatusCode.OK, trigger.StatusCode);
-        var build = await trigger.Content.ReadFromJsonAsync<BuildResponse>();
-        Assert.NotNull(build);
-        Assert.Equal(BuildStatus.Queued, build!.Status); // returned snapshot is the queued state
+        var anonymous = _factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/jobs")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/runs")).StatusCode);
+    }
 
-        // Wait for terminal state via the REST API.
-        BuildResponse? finished = null;
+    [Fact]
+    public async Task Login_ReturnsMe_AndLogoutClears()
+    {
+        var me = await _admin.GetAsync("/api/me");
+        me.EnsureSuccessStatusCode();
+
+        await _admin.PostAsync("/api/auth/logout", null);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _admin.GetAsync("/api/me")).StatusCode);
+    }
+
+    [Fact]
+    public async Task TriggerRun_CompletesWithJobsAndTimestampedLogs()
+    {
+        var trigger = await _admin.PostAsJsonAsync("/api/jobs/api-job/trigger", new { });
+        trigger.EnsureSuccessStatusCode();
+        var run = await trigger.Content.ReadFromJsonAsync<RunResponse>();
+        Assert.Equal("Running", run!.Status); // jobs are enqueued immediately
+
+        RunPageResponse? finished = null;
         await TestEnv.WaitUntilAsync(async () =>
         {
-            finished = await _client.GetFromJsonAsync<BuildResponse>($"/api/builds/{build!.Id}");
-            return finished is { IsTerminal: true };
+            finished = await (await _admin.GetAsync($"/api/runs/{run!.Id}")).Content
+                .ReadFromJsonAsync<RunPageResponse>();
+            return finished!.Run.IsTerminal;
         }, TimeSpan.FromSeconds(30));
-        Assert.Equal(BuildStatus.Success, finished!.Status);
-        Assert.Single(finished.Steps);
 
-        // Log paging with cursor semantics: full read, then a resumed read.
-        var page1 = await _client.GetFromJsonAsync<LogPage>($"/api/builds/{build.Id}/logs?afterOffset=0");
-        Assert.Contains(page1!.Lines, l => l.Text.Contains("rest-ok"));
-        Assert.True(page1.NextOffset > 0);
+        Assert.Equal("Success", finished!.Run.Status);
+        var job = Assert.Single(finished.Jobs);
+        Assert.Equal("Success", job.Status);
 
-        var page2 = await _client.GetFromJsonAsync<LogPage>($"/api/builds/{build.Id}/logs?afterOffset={page1.NextOffset}");
-        Assert.Empty(page2!.Lines);
+        var logs = await (await _admin.GetAsync($"/api/runs/{run.Id}/logs/build?afterLine=0"))
+            .Content.ReadFromJsonAsync<LogPageResponse>();
+        Assert.Contains(logs!.Lines, l => l.Text.Contains("api-ok"));
+        Assert.All(logs.Lines, l => Assert.True(DateTimeOffset.TryParse(l.TimestampUtc, out _)));
     }
 
     [Fact]
-    public async Task CancelQueuedBuild_Succeeds()
+    public async Task WorkflowCrud_CreateUpdateDelete()
     {
-        var trigger = await _client.PostAsync("/api/jobs/api-job/trigger", null);
-        var build = await trigger.Content.ReadFromJsonAsync<BuildResponse>();
-
-        // Racing the executor: cancel may land while queued or running; either way the
-        // build must reach a terminal state.
-        await _client.PostAsync($"/api/builds/{build!.Id}/cancel", null);
-        await TestEnv.WaitUntilAsync(async () =>
+        var create = await _admin.PostAsJsonAsync("/api/jobs", new
         {
-            var fresh = await _client.GetFromJsonAsync<BuildResponse>($"/api/builds/{build!.Id}");
-            return fresh is { IsTerminal: true };
-        }, TimeSpan.FromSeconds(30));
+            yaml = "name: crud-job\nproject: Default\njobs:\n  a:\n    steps:\n      - command: echo hi",
+        });
+        Assert.Equal(HttpStatusCode.OK, create.StatusCode);
+
+        var duplicate = await _admin.PostAsJsonAsync("/api/jobs", new
+        {
+            yaml = "name: crud-job\njobs:\n  a:\n    steps:\n      - command: echo",
+        });
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+
+        var invalid = await _admin.PostAsJsonAsync("/api/jobs", new
+        {
+            yaml = "name: invalid\njobs:\n  a:\n    steps: []",
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+
+        var update = await _admin.PutAsJsonAsync("/api/jobs/crud-job", new
+        {
+            yaml = "name: crud-job\njobs:\n  a:\n    steps:\n      - command: echo updated",
+        });
+        update.EnsureSuccessStatusCode();
+
+        var delete = await _admin.DeleteAsync("/api/jobs/crud-job");
+        delete.EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.NotFound, (await _admin.GetAsync("/api/jobs/crud-job/raw")).StatusCode);
     }
+
+    [Fact]
+    public async Task ProjectVisibility_UserSeesOnlyAssignedProjects()
+    {
+        // Create a second project + a workflow in it.
+        await _admin.PostAsJsonAsync("/api/projects", new { name = "Secret", description = "hidden" });
+        await _admin.PostAsJsonAsync("/api/jobs", new
+        {
+            yaml = "name: secret-job\nproject: Secret\njobs:\n  a:\n    steps:\n      - command: echo",
+        });
+
+        // Viewer assigned only to Default.
+        var viewer = await NewUserAsync("viewer", "pw123456", AppRoles_User(), [1]);
+        var jobs = await (await viewer.GetAsync("/api/jobs")).Content.ReadFromJsonAsync<List<WorkflowResponse>>();
+        Assert.DoesNotContain(jobs!, j => j.Name == "secret-job");
+        Assert.Contains(jobs!, j => j.Name == "api-job");
+
+        // Triggering a hidden workflow is not possible either.
+        Assert.Equal(HttpStatusCode.NotFound, (await viewer.PostAsJsonAsync("/api/jobs/secret-job/trigger", new { })).StatusCode);
+
+        // Once the project is granted, it becomes visible.
+        var users = await (await _admin.GetAsync("/api/users")).Content.ReadFromJsonAsync<List<UserResponse>>();
+        var viewerId = users!.Single(u => u.Username == "viewer").Id;
+        var update = await _admin.PutAsJsonAsync($"/api/users/{viewerId}", new { projectIds = new long[] { 1, 2 } });
+        update.EnsureSuccessStatusCode();
+
+        // New login to refresh the cookie claims (visibility reads DB, so even the old session works).
+        var jobsAfter = await (await viewer.GetAsync("/api/jobs")).Content.ReadFromJsonAsync<List<WorkflowResponse>>();
+        Assert.Contains(jobsAfter!, j => j.Name == "secret-job");
+    }
+
+    [Fact]
+    public async Task UserManagement_RequiresSuperAdmin()
+    {
+        // An ordinary user cannot list users.
+        var plain = await NewUserAsync("plain", "pw123456", "User", [1]);
+        Assert.Equal(HttpStatusCode.Forbidden, (await plain.GetAsync("/api/users")).StatusCode);
+
+        var users = await (await _admin.GetAsync("/api/users")).Content.ReadFromJsonAsync<List<UserResponse>>();
+        Assert.Contains(users!, u => u.Username == "admin" && u.Role == "SuperAdmin");
+    }
+
+    private static string AppRoles_User() => "User";
 
     public void Dispose()
     {
-        _client.Dispose();
+        _admin.Dispose();
         _factory.Dispose();
         try
         {
@@ -104,17 +186,14 @@ public class CiApiTests : IDisposable
     }
 }
 
-// Client-side mirrors of API payloads (enums as strings per server config).
-public sealed record JobDefinitionResponse(string Name, string? Description, List<StepResponse> Steps);
-public sealed record StepResponse(string Name, string Command);
-public sealed record BuildResponse(
-    long Id,
-    string JobName,
-    [property: JsonPropertyName("status")] BuildStatus Status,
-    int? ExitCode,
-    long Version,
-    List<BuildStepResponse> Steps)
+// Client-side mirrors of API payloads.
+public sealed record RunResponse(long Id, string WorkflowName, string Status, long Version)
 {
-    public bool IsTerminal => Status is BuildStatus.Success or BuildStatus.Failed or BuildStatus.Cancelled;
+    public bool IsTerminal => Status is "Success" or "Failed" or "Cancelled";
 }
-public sealed record BuildStepResponse(string Name, string Status, int? ExitCode);
+public sealed record RunPageResponse(RunResponse Run, List<JobRunResponse> Jobs);
+public sealed record JobRunResponse(long Id, string JobKey, string Status);
+public sealed record LogPageResponse(long RunId, string JobKey, long NextLine, List<LogLineResponse> Lines);
+public sealed record LogLineResponse(long Line, string TimestampUtc, int StepIndex, string Text);
+public sealed record WorkflowResponse(string Name, string Project);
+public sealed record UserResponse(long Id, string Username, string Role);

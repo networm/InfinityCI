@@ -16,6 +16,7 @@ message AgentRegistration {
   string version = 3;
   repeated string labels = 4;
   int32 max_concurrent_builds = 5;
+  string enroll_token = 6;        // one-time enrollment token (first registration)
 }
 
 message AgentStats {
@@ -24,25 +25,34 @@ message AgentStats {
   int64 free_disk_bytes = 3;
 }
 
+// One console line of a job log. Line offsets are line indexes into the job's
+// JSONL log on the master; timestamps are assigned by the master on append.
 message LogChunk {
-  int64 build_id = 1;
-  int64 offset = 2;               // agent-side byte offset of this line (informational; the master's file is authoritative)
-  string text = 3;                // one line, no trailing newline
+  int64 run_id = 1;
+  int64 job_run_id = 2;
+  string job_key = 3;
+  int32 step_index = 4;
+  int64 offset = 5;
+  string text = 6;
 }
 
 message StepUpdate {
-  int64 build_id = 1;
-  int32 step_index = 2;
-  string status = 3;              // Pending/Running/Success/Failed/Skipped/Cancelled
-  optional int32 exit_code = 4;
-  int64 start_offset = 5;
-  int64 end_offset = 6;
+  int64 run_id = 1;
+  int64 job_run_id = 2;
+  string job_key = 3;
+  int32 step_index = 4;
+  string status = 5;              // Pending/Running/Success/Failed/Skipped/Cancelled
+  optional int32 exit_code = 6;
+  int64 start_line = 7;
+  int64 end_line = 8;
 }
 
-message BuildFinished {
-  int64 build_id = 1;
-  string status = 2;              // Success/Failed/Cancelled
-  optional int32 exit_code = 3;
+message JobFinished {
+  int64 run_id = 1;
+  int64 job_run_id = 2;
+  string job_key = 3;
+  string status = 4;              // Success/Failed/Cancelled
+  optional int32 exit_code = 5;
 }
 
 message AgentToMaster {
@@ -52,20 +62,22 @@ message AgentToMaster {
     bool request_job = 3;         // pull: agent declares it has a free slot
     LogChunk log_chunk = 4;
     StepUpdate step_update = 5;
-    BuildFinished build_finished = 6;
+    JobFinished job_finished = 6;
   }
 }
 
 message JobAssignment {
-  int64 build_id = 1;
-  string job_name = 2;
-  string job_yaml = 3;            // full YAML; the agent parses and executes it
+  int64 run_id = 1;
+  int64 job_run_id = 2;
+  string job_key = 3;
+  string workflow_name = 4;
+  string workflow_yaml = 5;       // full workflow YAML; the agent runs jobs[job_key]
 }
 
 message MasterToAgent {
   oneof payload {
     bool register_ack = 1;
     JobAssignment assignment = 2;
-    int64 cancel_build = 3;       // build id to cancel
+    int64 cancel_job_run = 3;     // job run id to cancel
   }
 }

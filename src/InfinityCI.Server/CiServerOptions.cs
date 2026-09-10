@@ -5,7 +5,7 @@ public sealed class CiServerOptions
     public const string SectionName = "InfinityCI";
 
     public string DataDir { get; set; } = "data";
-    public int MaxConcurrentBuilds { get; set; } = 1;
+    public int MaxConcurrentJobs { get; set; } = 2;
 
     /// <summary>Built SPA directory, relative to the content root ("wwwroot" for published single-EXE).</summary>
     public string WebDistDir { get; set; } = "../../web/dist";

@@ -1,4 +1,3 @@
-using InfinityCI.Server.Builds;
 
 namespace InfinityCI.Server.Agents;
 
@@ -28,7 +27,7 @@ public sealed class AgentLeaseMonitor(
                 {
                     logger.LogWarning("Agent {Name} ({Id}) lease expired", agent.Name, agent.Id);
                     var orphaned = registry.MarkOffline(agent.Id);
-                    await coordinator.RequeueBuildsAsync(orphaned);
+                    await coordinator.RequeueJobRunsAsync(orphaned);
                     await coordinator.PublishAgentsChangedAsync();
                 }
             }

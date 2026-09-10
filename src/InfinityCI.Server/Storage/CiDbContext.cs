@@ -6,32 +6,91 @@ namespace InfinityCI.Server.Storage;
 
 public sealed class CiDbContext(DbContextOptions<CiDbContext> options) : DbContext(options)
 {
-    public DbSet<Build> Builds => Set<Build>();
+    public DbSet<User> Users => Set<User>();
+    public DbSet<Project> Projects => Set<Project>();
+    public DbSet<UserProject> UserProjects => Set<UserProject>();
+    public DbSet<Run> Runs => Set<Run>();
+    public DbSet<JobRun> JobRuns => Set<JobRun>();
+    public DbSet<AgentRecord> Agents => Set<AgentRecord>();
+    public DbSet<AgentEnrollment> AgentEnrollments => Set<AgentEnrollment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        var build = modelBuilder.Entity<Build>();
-        build.HasKey(x => x.Id);
-        build.Property(x => x.Id).ValueGeneratedOnAdd();
-        build.Property(x => x.JobName).IsRequired();
-        build.Property(x => x.StepsJson).IsRequired();
-        // Version is a client-facing mutation counter (ordering for real-time UI),
-        // not a DB concurrency token — writes for one build are serialized in the runner.
-        build.HasIndex(x => new { x.JobName, x.Id });
-        build.Ignore(x => x.Steps);
+        modelBuilder.Entity<User>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Username).IsUnique();
+            e.Property(x => x.Username).IsRequired();
+            e.Property(x => x.PasswordHash).IsRequired();
+            e.Property(x => x.Role).IsRequired();
+        });
 
-        // SQLite has no native DateTimeOffset column type; store as unix milliseconds.
-        build.Property(x => x.CreatedAt).HasConversion(
-            new ValueConverter<DateTimeOffset, long>(
-                v => v.ToUnixTimeMilliseconds(),
-                v => DateTimeOffset.FromUnixTimeMilliseconds(v)));
-        build.Property(x => x.StartedAt).HasConversion(
-            new ValueConverter<DateTimeOffset?, long?>(
-                v => v.HasValue ? v.Value.ToUnixTimeMilliseconds() : null,
-                v => v.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds(v.Value) : null));
-        build.Property(x => x.FinishedAt).HasConversion(
-            new ValueConverter<DateTimeOffset?, long?>(
-                v => v.HasValue ? v.Value.ToUnixTimeMilliseconds() : null,
-                v => v.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds(v.Value) : null));
+        modelBuilder.Entity<Project>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Name).IsUnique();
+            e.Property(x => x.Name).IsRequired();
+        });
+
+        modelBuilder.Entity<UserProject>(e =>
+        {
+            e.HasKey(x => new { x.UserId, x.ProjectId });
+            e.HasOne(x => x.User).WithMany(u => u.Projects).HasForeignKey(x => x.UserId);
+            e.HasOne(x => x.Project).WithMany(p => p.Users).HasForeignKey(x => x.ProjectId);
+        });
+
+        modelBuilder.Entity<Run>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedOnAdd();
+            e.Property(x => x.WorkflowName).IsRequired();
+            e.Property(x => x.Project).IsRequired();
+            e.HasIndex(x => new { x.Project, x.Id });
+            ConfigureDates(e.Property(x => x.CreatedAt), e.Property(x => x.StartedAt), e.Property(x => x.FinishedAt));
+        });
+
+        modelBuilder.Entity<JobRun>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedOnAdd();
+            e.Property(x => x.JobKey).IsRequired();
+            e.Property(x => x.RunsOn).IsRequired();
+            e.Property(x => x.StepsJson).IsRequired();
+            e.HasIndex(x => new { x.RunId, x.JobKey });
+            e.Ignore(x => x.Steps);
+            ConfigureDates(e.Property(x => x.CreatedAt), e.Property(x => x.StartedAt), e.Property(x => x.FinishedAt));
+        });
+
+        modelBuilder.Entity<AgentRecord>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).IsRequired();
+            e.Property(x => x.Name).IsRequired();
+        });
+
+        modelBuilder.Entity<AgentEnrollment>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedOnAdd();
+            e.HasIndex(x => x.Token).IsUnique();
+            e.Property(x => x.Token).IsRequired();
+            e.Property(x => x.Name).IsRequired();
+            e.Property(x => x.CreatedUtc).HasConversion(
+                new ValueConverter<DateTimeOffset, long>(v => v.ToUnixTimeMilliseconds(), v => DateTimeOffset.FromUnixTimeMilliseconds(v)));
+        });
+    }
+
+    // SQLite has no native DateTimeOffset column type; store as unix milliseconds.
+    private static void ConfigureDates(
+        Microsoft.EntityFrameworkCore.Metadata.Builders.PropertyBuilder<DateTimeOffset> required,
+        Microsoft.EntityFrameworkCore.Metadata.Builders.PropertyBuilder<DateTimeOffset?> optional1,
+        Microsoft.EntityFrameworkCore.Metadata.Builders.PropertyBuilder<DateTimeOffset?> optional2)
+    {
+        required.HasConversion(
+            new ValueConverter<DateTimeOffset, long>(v => v.ToUnixTimeMilliseconds(), v => DateTimeOffset.FromUnixTimeMilliseconds(v)));
+        optional1.HasConversion(
+            new ValueConverter<DateTimeOffset?, long?>(v => v.HasValue ? v.Value.ToUnixTimeMilliseconds() : null, v => v.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds(v.Value) : null));
+        optional2.HasConversion(
+            new ValueConverter<DateTimeOffset?, long?>(v => v.HasValue ? v.Value.ToUnixTimeMilliseconds() : null, v => v.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds(v.Value) : null));
     }
 }

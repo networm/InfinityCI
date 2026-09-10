@@ -1,17 +1,23 @@
 using InfinityCI.Grpc;
+using InfinityCI.Server.Auth;
+using InfinityCI.Server.Runs;
 using Grpc.Core;
+using Microsoft.AspNetCore.Authorization;
 
 namespace InfinityCI.Server.Agents;
 
 /// <summary>
 /// The single bidi-stream RPC each agent process holds open. Register comes
-/// first; heartbeats keep the lease alive; request_job pulls work; log/step/
-/// finish messages flow build state back through the same pipeline as local
-/// builds (log store + events), so the UI cannot tell them apart.
+/// first (with a one-time enrollment token for new agents); heartbeats keep the
+/// lease alive; request_job pulls work; log/step/finish messages flow build
+/// state back through the same pipeline as local runs, so the UI cannot tell
+/// them apart.
 /// </summary>
+[Authorize(Roles = AppRoles.AdminsAndSuperAdmin)]
 public sealed class AgentHubService(
     AgentRegistry registry,
     RemoteBuildCoordinator coordinator,
+    IServiceScopeFactory scopeFactory,
     ILogger<AgentHubService> logger) : AgentHub.AgentHubBase
 {
     public override async Task Connect(
@@ -31,10 +37,13 @@ public sealed class AgentHubService(
 
                 switch (message.PayloadCase)
                 {
-                    case AgentToMaster.PayloadOneofCase.Register:
-                        agent = registry.Register(message.Register, responseStream);
-                        await registry.TrySendAsync(agent.Id, new MasterToAgent { RegisterAck = true });
-                        await coordinator.PublishAgentsChangedAsync();
+                    case AgentToMaster.PayloadOneofCase.Register when agent is null:
+                        agent = await TryRegisterAsync(message.Register, responseStream);
+                        if (agent is not null)
+                        {
+                            await registry.TrySendAsync(agent.Id, new MasterToAgent { RegisterAck = true });
+                            await coordinator.PublishAgentsChangedAsync();
+                        }
                         break;
 
                     case AgentToMaster.PayloadOneofCase.Stats when agent is not null:
@@ -59,9 +68,9 @@ public sealed class AgentHubService(
                         await coordinator.ApplyStepUpdateAsync(message.StepUpdate);
                         break;
 
-                    case AgentToMaster.PayloadOneofCase.BuildFinished when agent is not null:
-                        await coordinator.FinalizeAsync(message.BuildFinished);
-                        registry.ClearAssignment(message.BuildFinished.BuildId);
+                    case AgentToMaster.PayloadOneofCase.JobFinished when agent is not null:
+                        await coordinator.FinalizeAsync(message.JobFinished);
+                        registry.ClearAssignment(message.JobFinished.JobRunId);
                         registry.ReleaseSlot(agent.Id);
                         await coordinator.PublishAgentsChangedAsync();
                         break;
@@ -83,8 +92,54 @@ public sealed class AgentHubService(
         if (agent is not null)
         {
             var orphaned = registry.MarkOffline(agent.Id);
-            await coordinator.RequeueBuildsAsync(orphaned);
+            await coordinator.RequeueJobRunsAsync(orphaned);
             await coordinator.PublishAgentsChangedAsync();
         }
+    }
+
+    /// <summary>Validates enrollment / enablement, then registers. Returns null when rejected.</summary>
+    private async Task<AgentConnection?> TryRegisterAsync(AgentRegistration registration, IServerStreamWriter<MasterToAgent> responseStream)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<Storage.CiDbContext>();
+
+        var record = await db.Agents.FindAsync([registration.AgentId]);
+        if (record is not null)
+        {
+            if (!record.Enabled)
+            {
+                logger.LogWarning("Rejected registration from disabled agent {Id}", registration.AgentId);
+                return null;
+            }
+            record.LastSeenUtc = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync();
+            return registry.Register(registration, responseStream);
+        }
+
+        // New agent: an unused one-time enrollment token is required.
+        // (Explicit EF call: System.Linq.Async in the gRPC graph makes the
+        // lambda overloads ambiguous.)
+        var enrollment = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(
+            db.AgentEnrollments,
+            e => e.Token == registration.EnrollToken && e.UsedByAgentId == null);
+        if (enrollment is null)
+        {
+            logger.LogWarning("Rejected unknown agent {Id}: no valid enrollment token", registration.AgentId);
+            return null;
+        }
+
+        enrollment.UsedByAgentId = registration.AgentId;
+        db.Agents.Add(new Storage.AgentRecord
+        {
+            Id = registration.AgentId,
+            Name = string.IsNullOrWhiteSpace(registration.AgentName) ? enrollment.Name : registration.AgentName,
+            LabelsJson = System.Text.Json.JsonSerializer.Serialize(registration.Labels.ToArray()),
+            MaxConcurrentBuilds = Math.Max(1, registration.MaxConcurrentBuilds),
+            Enabled = true,
+            EnrolledAt = DateTimeOffset.UtcNow,
+            LastSeenUtc = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync();
+        return registry.Register(registration, responseStream);
     }
 }

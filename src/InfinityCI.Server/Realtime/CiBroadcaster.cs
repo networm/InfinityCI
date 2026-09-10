@@ -1,25 +1,30 @@
+using System.Security.Claims;
 using InfinityCI.Core;
 using InfinityCI.Server.Agents;
-using InfinityCI.Server.Builds;
+using InfinityCI.Server.Auth;
 using InfinityCI.Server.Hubs;
+using InfinityCI.Server.Runs;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 
 namespace InfinityCI.Server.Realtime;
 
 /// <summary>
-/// Bridges in-process events to SignalR groups: build status changes go to the
-/// build's group and the dashboard; log lines go to the owning build's group
+/// Bridges in-process events to SignalR groups: run/job status changes go to
+/// the run's group and the dashboard; log lines go to the owning run's group
 /// only; agent changes go to the agents group.
 /// </summary>
 public sealed class CiBroadcaster(
-    BuildEvents events,
+    RunEvents events,
     AgentRegistry agentRegistry,
+    IServiceScopeFactory scopeFactory,
     IHubContext<CiHub> hubContext,
     ILogger<CiBroadcaster> logger) : IHostedService
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        events.BuildUpdated += OnBuildUpdatedAsync;
+        events.RunUpdated += OnRunUpdatedAsync;
+        events.JobRunUpdated += OnJobRunUpdatedAsync;
         events.LogAppended += OnLogAppendedAsync;
         agentRegistry.AgentsChanged += OnAgentsChangedAsync;
         return Task.CompletedTask;
@@ -27,21 +32,27 @@ public sealed class CiBroadcaster(
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        events.BuildUpdated -= OnBuildUpdatedAsync;
+        events.RunUpdated -= OnRunUpdatedAsync;
+        events.JobRunUpdated -= OnJobRunUpdatedAsync;
         events.LogAppended -= OnLogAppendedAsync;
         agentRegistry.AgentsChanged -= OnAgentsChangedAsync;
         return Task.CompletedTask;
     }
 
-    private Task OnBuildUpdatedAsync(Build build) =>
+    private Task OnRunUpdatedAsync(Run run) =>
         hubContext.Clients
-            .Groups(CiGroups.Build(build.Id), CiGroups.Dashboard)
-            .SendAsync("buildUpdated", build);
+            .Groups(CiGroups.Run(run.Id), CiGroups.Dashboard)
+            .SendAsync("runUpdated", run);
+
+    private Task OnJobRunUpdatedAsync(JobRun jobRun) =>
+        hubContext.Clients
+            .Groups(CiGroups.Run(jobRun.RunId), CiGroups.Dashboard)
+            .SendAsync("jobUpdated", jobRun);
 
     private Task OnLogAppendedAsync(LogAppendedEventArgs args) =>
         hubContext.Clients
-            .Group(CiGroups.Build(args.BuildId))
-            .SendAsync("logAppended", args.BuildId, args.Offset, args.Text);
+            .Group(CiGroups.Run(args.RunId))
+            .SendAsync("logAppended", args.RunId, args.JobKey, args.Line);
 
     private async Task OnAgentsChangedAsync(IReadOnlyList<AgentSnapshot> snapshot)
     {

@@ -1,45 +1,55 @@
 using InfinityCI.Core;
 using InfinityCI.Server.Agents;
-using InfinityCI.Server.Builds;
+using InfinityCI.Server.Runs;
 using InfinityCI.Server.Storage;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
 namespace InfinityCI.Server.Hubs;
 
-public sealed record BuildSubscription(Build Build, IReadOnlyList<LogLine> Lines);
+public sealed record RunSubscription(Run Run, IReadOnlyList<JobRun> JobRuns, IReadOnlyDictionary<string, IReadOnlyList<LogLine>> Logs);
+
+public sealed record RunsPageItem(Run Run, IReadOnlyList<JobRun> Jobs);
 
 /// <summary>
 /// Real-time hub. Each browser tab opens its own connection with its own
 /// ConnectionId; subscriptions are per-connection and SignalR removes group
 /// membership automatically on disconnect, so tabs never affect each other.
 /// </summary>
-public sealed class CiHub(BuildLogStore logStore, BuildRepository repository, AgentRegistry agentRegistry) : Hub
+[Authorize]
+public sealed class CiHub(JobLogStore logStore, RunRepository repository, AgentRegistry agentRegistry) : Hub
 {
     /// <summary>
-    /// Joins the build's group and returns a snapshot plus log lines after the
-    /// caller's byte cursor. Live events may duplicate backfill lines; clients
-    /// drop any line whose offset is below their cursor.
+    /// Joins the run's group and returns a full snapshot: run, all parallel job
+    /// runs, and each job's complete log. Live events may duplicate backfill
+    /// lines; clients drop any line whose index is below their cursor.
     /// </summary>
-    public async Task<BuildSubscription> SubscribeBuild(long buildId, long afterOffset)
+    public async Task<RunSubscription> SubscribeRun(long runId)
     {
-        await Groups.AddToGroupAsync(Context.ConnectionId, CiGroups.Build(buildId));
+        await Groups.AddToGroupAsync(Context.ConnectionId, CiGroups.Run(runId));
 
-        var build = await repository.GetAsync(buildId)
-            ?? throw new HubException($"Build {buildId} not found.");
+        var run = await repository.GetRunAsync(runId)
+            ?? throw new HubException($"Run {runId} not found.");
+        var jobRuns = await repository.GetJobRunsAsync(runId);
 
-        // Join first, then backfill: a line appended in between is delivered
-        // twice (live + backfill) and deduplicated client-side by offset.
-        var lines = await logStore.ReadAfterAsync(buildId, afterOffset);
-        return new BuildSubscription(build, lines);
+        // Join first, then backfill: lines appended in between are delivered
+        // twice (live + backfill) and deduplicated client-side by line index.
+        var logs = new Dictionary<string, IReadOnlyList<LogLine>>();
+        foreach (var jobRun in jobRuns)
+            logs[jobRun.JobKey] = await logStore.ReadAfterAsync(runId, jobRun.JobKey, 0);
+
+        return new RunSubscription(run, jobRuns, logs);
     }
 
-    public Task UnsubscribeBuild(long buildId) =>
-        Groups.RemoveFromGroupAsync(Context.ConnectionId, CiGroups.Build(buildId));
+    public Task UnsubscribeRun(long runId) =>
+        Groups.RemoveFromGroupAsync(Context.ConnectionId, CiGroups.Run(runId));
 
-    public async Task<IReadOnlyList<Build>> SubscribeDashboard()
+    public async Task<IReadOnlyList<RunsPageItem>> SubscribeDashboard(int skip = 0, int take = 30)
     {
         await Groups.AddToGroupAsync(Context.ConnectionId, CiGroups.Dashboard);
-        return await repository.ListAsync(jobName: null, skip: 0, take: 50);
+        var runs = await repository.ListRunsAsync(Math.Max(0, skip), take is < 1 or > 100 ? 30 : take);
+        var jobs = await repository.GetJobRunsForAsync(runs.Select(r => r.Id));
+        return runs.Select(r => new RunsPageItem(r, jobs.GetValueOrDefault(r.Id, []))).ToList();
     }
 
     public Task UnsubscribeDashboard() =>

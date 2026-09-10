@@ -89,6 +89,7 @@ public sealed class AgentWorker(
                 Version = options.Version,
                 Labels = { options.Labels },
                 MaxConcurrentBuilds = options.MaxConcurrentBuilds,
+                EnrollToken = options.EnrollToken,
             },
         });
 
@@ -119,9 +120,9 @@ public sealed class AgentWorker(
                         }, CancellationToken.None);
                         break;
 
-                    case MasterToAgent.PayloadOneofCase.CancelBuild:
-                        logger.LogInformation("Master requested cancellation of build {BuildId}", message.CancelBuild);
-                        runner.TryCancel(message.CancelBuild);
+                    case MasterToAgent.PayloadOneofCase.CancelJobRun:
+                        logger.LogInformation("Master requested cancellation of job run {JobRunId}", message.CancelJobRun);
+                        runner.TryCancel(message.CancelJobRun);
                         break;
                 }
             }

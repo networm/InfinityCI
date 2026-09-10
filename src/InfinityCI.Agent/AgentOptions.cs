@@ -18,6 +18,9 @@ public sealed class AgentOptions
     /// <summary>Local state (agent id, workspaces), relative to the agent's working directory.</summary>
     public string DataDir { get; set; } = "agent-data";
 
+    /// <summary>One-time enrollment token for registering a new agent.</summary>
+    public string EnrollToken { get; set; } = "";
+
     /// <summary>Seconds between heartbeats; must stay well under the master's lease timeout.</summary>
     public int HeartbeatIntervalSeconds { get; set; } = 5;
 

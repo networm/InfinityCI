@@ -48,6 +48,6 @@ public class ShellResolverTests
     [Fact]
     public void CreateStartInfo_UnknownShell_Throws()
     {
-        Assert.Throws<JobYamlException>(() => ShellResolver.CreateStartInfo("echo hi", shellOverride: "definitely-not-a-shell"));
+        Assert.Throws<WorkflowYamlException>(() => ShellResolver.CreateStartInfo("echo hi", shellOverride: "definitely-not-a-shell"));
     }
 }

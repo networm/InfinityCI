@@ -36,7 +36,7 @@ public static class ShellResolver
         null or "" or "cmd" => Cmd(command),
         "powershell" => PowerShell("powershell.exe", command),
         "pwsh" => PowerShell("pwsh", command),
-        _ => throw new JobYamlException($"Unsupported shell '{shell}' on Windows. Supported: cmd, powershell, pwsh."),
+        _ => throw new WorkflowYamlException($"Unsupported shell '{shell}' on Windows. Supported: cmd, powershell, pwsh."),
     };
 
     private static ProcessStartInfo ResolveUnix(string? shell, string command) => shell?.Trim().ToLowerInvariant() switch
@@ -44,7 +44,7 @@ public static class ShellResolver
         null or "" or "sh" => Sh("/bin/sh", command),
         "bash" => Sh("/bin/bash", command),
         "pwsh" => PowerShell("pwsh", command),
-        _ => throw new JobYamlException($"Unsupported shell '{shell}' on Unix. Supported: sh, bash, pwsh."),
+        _ => throw new WorkflowYamlException($"Unsupported shell '{shell}' on Unix. Supported: sh, bash, pwsh."),
     };
 
     private static ProcessStartInfo Cmd(string command)

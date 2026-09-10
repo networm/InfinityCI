@@ -17,6 +17,8 @@ public sealed record AgentSnapshot(
     long FreeDiskBytes,
     DateTimeOffset LastSeenUtc);
 
+public readonly record struct PendingJobRun(long JobRunId, string? RequiredLabel);
+
 public sealed class AgentConnection
 {
     public required string Id { get; init; }
@@ -34,14 +36,14 @@ public sealed class AgentConnection
 }
 
 /// <summary>
-/// In-memory state of connected agents plus the pending-build queue for
+/// In-memory state of connected agents plus the pending-job-run queue for
 /// pull-based dispatch. Persistence and build mutations live in
 /// <see cref="RemoteBuildCoordinator"/>.
 /// </summary>
 public sealed class AgentRegistry(ILogger<AgentRegistry> logger)
 {
     private readonly ConcurrentDictionary<string, AgentConnection> _agents = new();
-    private readonly ConcurrentQueue<long> _pendingBuilds = new();
+    private readonly ConcurrentQueue<PendingJobRun> _pending = new();
     private readonly ConcurrentDictionary<long, string> _assignments = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _writeLocks = new();
 
@@ -88,7 +90,7 @@ public sealed class AgentRegistry(ILogger<AgentRegistry> logger)
         agent.LastSeenUtc = DateTimeOffset.UtcNow;
     }
 
-    /// <summary>Marks the agent offline and returns build ids assigned to it.</summary>
+    /// <summary>Marks the agent offline and returns job run ids assigned to it.</summary>
     public List<long> MarkOffline(string agentId)
     {
         var orphaned = new List<long>();
@@ -97,23 +99,23 @@ public sealed class AgentRegistry(ILogger<AgentRegistry> logger)
 
         agent.Online = false;
         agent.ResponseStream = null;
-        foreach (var (buildId, ownerId) in _assignments)
+        foreach (var (jobRunId, ownerId) in _assignments)
         {
             if (ownerId != agentId)
                 continue;
-            if (_assignments.TryRemove(new KeyValuePair<long, string>(buildId, ownerId)))
-                orphaned.Add(buildId);
+            if (_assignments.TryRemove(new KeyValuePair<long, string>(jobRunId, ownerId)))
+                orphaned.Add(jobRunId);
         }
-        logger.LogWarning("Agent {Name} ({Id}) went offline; {Count} build(s) orphaned",
+        logger.LogWarning("Agent {Name} ({Id}) went offline; {Count} job run(s) orphaned",
             agent.Name, agent.Id, orphaned.Count);
         return orphaned;
     }
 
     // -- pending queue (pull dispatch) --
 
-    public void EnqueuePending(long buildId) => _pendingBuilds.Enqueue(buildId);
-    public bool TryDequeuePending(out long buildId) => _pendingBuilds.TryDequeue(out buildId);
-    public void RequeuePending(long buildId) => _pendingBuilds.Enqueue(buildId);
+    public void EnqueuePending(PendingJobRun pending) => _pending.Enqueue(pending);
+    public bool TryDequeuePending(out PendingJobRun pending) => _pending.TryDequeue(out pending);
+    public void RequeuePending(PendingJobRun pending) => _pending.Enqueue(pending);
 
     // -- capacity & assignment bookkeeping --
 
@@ -145,9 +147,9 @@ public sealed class AgentRegistry(ILogger<AgentRegistry> logger)
         }
     }
 
-    public void Assign(long buildId, string agentId) => _assignments[buildId] = agentId;
-    public void ClearAssignment(long buildId) => _assignments.TryRemove(buildId, out _);
-    public string? GetAssignedAgent(long buildId) => _assignments.GetValueOrDefault(buildId);
+    public void Assign(long jobRunId, string agentId) => _assignments[jobRunId] = agentId;
+    public void ClearAssignment(long jobRunId) => _assignments.TryRemove(jobRunId, out _);
+    public string? GetAssignedAgent(long jobRunId) => _assignments.GetValueOrDefault(jobRunId);
 
     public async Task<bool> TrySendAsync(string agentId, MasterToAgent message)
     {
@@ -171,11 +173,11 @@ public sealed class AgentRegistry(ILogger<AgentRegistry> logger)
         }
     }
 
-    public async Task<bool> TrySendCancelAsync(long buildId)
+    public async Task<bool> TrySendCancelAsync(long jobRunId)
     {
-        if (!_assignments.TryGetValue(buildId, out var agentId))
+        if (!_assignments.TryGetValue(jobRunId, out var agentId))
             return false;
-        return await TrySendAsync(agentId, new MasterToAgent { CancelBuild = buildId });
+        return await TrySendAsync(agentId, new MasterToAgent { CancelJobRun = jobRunId });
     }
 
     public IReadOnlyList<AgentSnapshot> Snapshot() =>

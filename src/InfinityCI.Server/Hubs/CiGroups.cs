@@ -6,7 +6,5 @@ public static class CiGroups
     public const string Dashboard = "dashboard";
     public const string Agents = "agents";
 
-    public static string Build(long buildId) => $"build-{buildId}";
-
-    public static string Job(string jobName) => $"job-{jobName}";
+    public static string Run(long runId) => $"run-{runId}";
 }

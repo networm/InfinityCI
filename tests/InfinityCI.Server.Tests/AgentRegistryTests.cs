@@ -74,22 +74,28 @@ public class AgentRegistryTests
     }
 
     [Fact]
-    public void PendingQueue_IsFifo()
+    public void PendingQueue_IsFifo_AndCarriesLabelFilter()
     {
         var registry = CreateRegistryWithAgent(out _);
 
-        registry.EnqueuePending(10);
-        registry.EnqueuePending(11);
-        registry.EnqueuePending(12);
+        registry.EnqueuePending(new PendingJobRun(10, null));
+        registry.EnqueuePending(new PendingJobRun(11, "docker"));
+        registry.EnqueuePending(new PendingJobRun(12, null));
 
         Assert.True(registry.TryDequeuePending(out var first));
-        Assert.Equal(10, first);
-        registry.RequeuePending(13);
+        Assert.Equal(10, first.JobRunId);
+        Assert.Null(first.RequiredLabel);
+
+        registry.RequeuePending(new PendingJobRun(13, "gpu"));
+
         Assert.True(registry.TryDequeuePending(out var second));
-        Assert.Equal(11, second);
+        Assert.Equal(11, second.JobRunId);
+        Assert.Equal("docker", second.RequiredLabel);
+
         Assert.True(registry.TryDequeuePending(out var third));
-        Assert.Equal(12, third);
+        Assert.Equal(12, third.JobRunId);
         Assert.True(registry.TryDequeuePending(out var fourth));
-        Assert.Equal(13, fourth);
+        Assert.Equal(13, fourth.JobRunId);
+        Assert.Equal("gpu", fourth.RequiredLabel);
     }
 }
