@@ -3,8 +3,9 @@ import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useMe } from "@/lib/me-context";
 
 const tabs = [
-  { to: "/", label: "Runs" },
+  { to: "/", label: "Dashboard" },
   { to: "/jobs", label: "任务" },
+  { to: "/runs", label: "Runs" },
   { to: "/agents", label: "Agents" },
 ] as const;
 

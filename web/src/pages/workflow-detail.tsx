@@ -3,7 +3,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import type { HubConnection } from "@microsoft/signalr";
 import { ChevronLeft, ChevronRight, History, Pencil, Play, RefreshCw, Trash2 } from "lucide-react";
 
-import { HistoryDrawer } from "@/pages/jobs";
+import { HistoryDrawer } from "@/components/history-drawer";
 import { StatusIcon } from "@/components/status-icon";
 import { api, UnauthorizedError } from "@/lib/api";
 import { useMe } from "@/lib/me-context";

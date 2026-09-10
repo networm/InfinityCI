@@ -7,6 +7,7 @@ import { BuildDetailPage } from "./pages/run-detail";
 import { DashboardPage } from "./pages/runs";
 import { JobEditorPage } from "./pages/job-editor";
 import { JobsPage } from "./pages/jobs";
+import { RunsListPage } from "./pages/runs-list";
 import { WorkflowDetailPage } from "./pages/workflow-detail";
 
 const rootRoute = createRootRoute({
@@ -26,6 +27,12 @@ const runRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/runs/$runId",
   component: BuildDetailPage,
+});
+
+const runsListRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/runs",
+  component: RunsListPage,
 });
 
 const jobsRoute = createRoute({
@@ -67,6 +74,7 @@ const adminRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   runRoute,
+  runsListRoute,
   jobsRoute,
   newJobRoute,
   editJobRoute,
