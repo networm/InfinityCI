@@ -2,7 +2,6 @@ using InfinityCI.Grpc;
 using InfinityCI.Server.Auth;
 using InfinityCI.Server.Runs;
 using Grpc.Core;
-using Microsoft.AspNetCore.Authorization;
 
 namespace InfinityCI.Server.Agents;
 
@@ -11,9 +10,9 @@ namespace InfinityCI.Server.Agents;
 /// first (with a one-time enrollment token for new agents); heartbeats keep the
 /// lease alive; request_job pulls work; log/step/finish messages flow build
 /// state back through the same pipeline as local runs, so the UI cannot tell
-/// them apart.
+/// them apart. Agent identity is established by the one-time enrollment token
+/// at registration — not by user cookies — so this service is anonymous.
 /// </summary>
-[Authorize(Roles = AppRoles.AdminsAndSuperAdmin)]
 public sealed class AgentHubService(
     AgentRegistry registry,
     RemoteBuildCoordinator coordinator,

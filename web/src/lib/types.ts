@@ -1,62 +1,94 @@
 // Mirrors the server API payloads (System.Text.Json, camelCase, enums as strings).
 
-export type BuildStatus = "Queued" | "Running" | "Success" | "Failed" | "Cancelled";
-export type BuildStepStatus = "Pending" | "Running" | "Success" | "Failed" | "Skipped" | "Cancelled";
+export type RunStatus = "Queued" | "Running" | "Success" | "Failed" | "Cancelled";
+export type JobRunStatus = "Queued" | "Running" | "Success" | "Failed" | "Cancelled" | "Pending" | "Skipped";
+export type UserRole = "SuperAdmin" | "Admin" | "User";
 
-export interface BuildStep {
+export interface JobStep {
   name: string;
-  status: BuildStepStatus;
+  status: JobRunStatus;
   startedAt: string | null;
   finishedAt: string | null;
   exitCode: number | null;
-  /** Byte offset in the build log where this step's output starts. */
-  startOffset: number;
-  /** Byte offset where this step's output ends (exclusive). */
-  endOffset: number;
+  /** Line index in the job's log where this step's output starts. */
+  startLine: number;
+  /** Line index where this step's output ends (exclusive). */
+  endLine: number;
 }
 
-export interface Build {
+export interface JobRun {
   id: number;
-  jobName: string;
-  status: BuildStatus;
+  runId: number;
+  jobKey: string;
+  runsOn: string;
+  agentId: string | null;
+  status: JobRunStatus;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
   exitCode: number | null;
-  /** Monotonic mutation counter; drop updates whose version is older than seen. */
   version: number;
-  steps: BuildStep[];
-}
-
-export interface JobStep {
-  name: string;
-  command: string;
-  shell: string | null;
-  continueOnError: boolean;
-  environment: Record<string, string>;
-}
-
-export interface JobDefinition {
-  name: string;
-  description: string | null;
-  environment: Record<string, string>;
   steps: JobStep[];
 }
 
+export interface Run {
+  id: number;
+  workflowName: string;
+  project: string;
+  triggeredBy: string;
+  status: RunStatus;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  version: number;
+}
+
 export interface LogLine {
-  offset: number;
+  line: number;
+  timestampUtc: string;
+  stepIndex: number;
   text: string;
 }
 
-export interface LogPage {
-  buildId: number;
-  nextOffset: number;
-  lines: LogLine[];
+export interface RunSubscription {
+  run: Run;
+  jobRuns: JobRun[];
+  logs: Record<string, LogLine[]>;
 }
 
-export interface BuildSubscription {
-  build: Build;
-  lines: LogLine[];
+export interface RunsPageItem {
+  run: Run;
+  jobs: JobRun[];
+}
+
+export interface WorkflowJobInfo {
+  key: string;
+  runsOn: string;
+  steps: number;
+}
+
+export interface WorkflowInfo {
+  name: string;
+  project: string;
+  jobs: WorkflowJobInfo[];
+}
+
+export interface Me {
+  username: string;
+  role: UserRole;
+}
+
+export interface ProjectInfo {
+  id: number;
+  name: string;
+  description: string | null;
+}
+
+export interface UserInfo {
+  id: number;
+  username: string;
+  role: UserRole;
+  projects: { projectId: number; name: string }[];
 }
 
 export interface AgentInfo {
@@ -71,4 +103,46 @@ export interface AgentInfo {
   memoryPercent: number;
   freeDiskBytes: number;
   lastSeenUtc: string;
+}
+
+export interface EnrolledAgent {
+  id: string;
+  name: string;
+  labels: string[];
+  maxConcurrentBuilds: number;
+  enabled: boolean;
+  enrolledAt: string;
+  lastSeenUtc: string | null;
+  online: boolean;
+}
+
+export interface AgentEnrollment {
+  id: number;
+  token: string;
+  name: string;
+  labelsJson: string;
+  maxConcurrentBuilds: number;
+  createdUtc: string;
+  usedByAgentId: string | null;
+}
+
+// ---- job editor models ----
+
+export interface EditorStep {
+  name: string;
+  command: string;
+  shell: string;
+  continueOnError: boolean;
+}
+
+export interface EditorJob {
+  key: string;
+  runsOn: string; // local | agent | agent:<label>
+  steps: EditorStep[];
+}
+
+export interface EditorWorkflow {
+  name: string;
+  project: string;
+  jobs: EditorJob[];
 }
