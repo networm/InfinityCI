@@ -42,6 +42,10 @@ export const api = {
 
   // runs
   runs: (skip = 0, take = 30) => request<RunsPageItem[]>(`/api/runs?skip=${skip}&take=${take}`),
+  workflowRuns: (name: string, skip = 0, take = 20) =>
+    request<{ total: number; items: RunsPageItem[] }>(
+      `/api/jobs/${encodeURIComponent(name)}/runs?skip=${skip}&take=${take}`,
+    ),
   run: (id: number) => request<RunsPageItem>(`/api/runs/${id}`),
   cancelRun: (id: number) =>
     request<{ cancelled: boolean }>(`/api/runs/${id}/cancel`, { method: "POST" }),

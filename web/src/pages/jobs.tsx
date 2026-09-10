@@ -98,7 +98,11 @@ export function JobsPage() {
             <tbody>
               {workflows.map((workflow) => (
                 <tr key={workflow.name} className="border-b border-[#d8dee4] last:border-0 hover:bg-[#f6f8fa]">
-                  <td className="px-4 py-2.5 font-medium">{workflow.name}</td>
+                  <td className="px-4 py-2.5 font-medium">
+                    <Link to="/jobs/$name" params={{ name: workflow.name }} className="hover:text-[#0969da] hover:underline">
+                      {workflow.name}
+                    </Link>
+                  </td>
                   <td className="px-4 py-2.5 text-[#57606a]">{workflow.project}</td>
                   <td className="px-4 py-2.5 text-[#57606a]">
                     <div className="flex flex-wrap gap-1.5">
@@ -162,7 +166,7 @@ export function JobsPage() {
   );
 }
 
-function HistoryDrawer({ name, isAdmin, onClose }: { name: string; isAdmin: boolean; onClose: () => void }) {
+export function HistoryDrawer({ isAdmin, onClose, name }: { name: string; isAdmin: boolean; onClose: () => void }) {
   const [commits, setCommits] = useState<WorkflowCommit[] | null>(null);
   const [preview, setPreview] = useState<{ sha: string; yaml: string } | null>(null);
   const [message, setMessage] = useState<string | null>(null);

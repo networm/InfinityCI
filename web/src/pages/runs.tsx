@@ -56,10 +56,10 @@ function useRunsFeed() {
           );
         });
 
-        const initial = await connection.invoke<RunsPageItem[]>("SubscribeDashboard");
+        const initial = await connection.invoke<RunsPageItem[]>("SubscribeDashboard", 0, 30);
         if (!cancelled && initial.length > 0) setItems(initial);
         connection.on("reconnected", async () => {
-          const fresh = await connection!.invoke<RunsPageItem[]>("SubscribeDashboard");
+          const fresh = await connection!.invoke<RunsPageItem[]>("SubscribeDashboard", 0, 30);
           if (!cancelled) setItems(fresh);
         });
       } catch {

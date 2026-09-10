@@ -7,6 +7,7 @@ import { BuildDetailPage } from "./pages/run-detail";
 import { DashboardPage } from "./pages/runs";
 import { JobEditorPage } from "./pages/job-editor";
 import { JobsPage } from "./pages/jobs";
+import { WorkflowDetailPage } from "./pages/workflow-detail";
 
 const rootRoute = createRootRoute({
   component: AppLayout,
@@ -45,6 +46,12 @@ const editJobRoute = createRoute({
   component: JobEditorPage,
 });
 
+const jobDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/jobs/$name",
+  component: WorkflowDetailPage,
+});
+
 const agentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/agents",
@@ -63,6 +70,7 @@ const routeTree = rootRoute.addChildren([
   jobsRoute,
   newJobRoute,
   editJobRoute,
+  jobDetailRoute,
   agentsRoute,
   adminRoute,
 ]);
