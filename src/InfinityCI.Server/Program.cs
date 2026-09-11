@@ -6,6 +6,7 @@ using InfinityCI.Server.Api;
 using InfinityCI.Server.Auth;
 using InfinityCI.Server.Hubs;
 using InfinityCI.Server.Jobs;
+using InfinityCI.Server.Notifications;
 using InfinityCI.Server.Realtime;
 using InfinityCI.Server.Runs;
 using InfinityCI.Server.Storage;
@@ -72,6 +73,9 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 builder.Services.AddSignalR().AddJsonProtocol(o =>
     o.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
+builder.Services.AddHttpClient("wecom");
+builder.Services.AddSingleton<WorkflowControlService>();
+builder.Services.AddSingleton<WeComNotifier>();
 builder.Services.AddSingleton<CredentialStore>();
 builder.Services.AddSingleton<RunEvents>();
 builder.Services.AddSingleton<JobLogStore>();
@@ -139,6 +143,10 @@ if (Directory.Exists(distDir))
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Subscribe WeCom notifications before the server starts accepting triggers.
+app.Services.GetRequiredService<WeComNotifier>()
+    .Subscribe(app.Services.GetRequiredService<RunEvents>());
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTimeOffset.UtcNow }));
 app.MapHub<CiHub>("/hubs/ci");

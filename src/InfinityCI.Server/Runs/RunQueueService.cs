@@ -23,6 +23,7 @@ public sealed class RunQueueService(
     RunAggregator aggregator,
     JobRunExecutor executor,
     LocalJobRunQueue localQueue,
+    Jobs.WorkflowControlService workflowControl,
     IServiceScopeFactory scopeFactory,
     ILogger<RunQueueService> logger) : BackgroundService
 {
@@ -39,6 +40,8 @@ public sealed class RunQueueService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workflowName);
         var workflow = workflowStore.TryGet(workflowName) ?? throw new InvalidOperationException($"Unknown workflow '{workflowName}'.");
+        if (!await workflowControl.IsEnabledAsync(workflowName, ct))
+            throw new WorkflowDisabledException(workflowName);
 
         // Merge caller-provided values over defaults; required params must end up non-empty.
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

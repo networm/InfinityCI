@@ -11,6 +11,7 @@ public sealed class CiDbContext(DbContextOptions<CiDbContext> options) : DbConte
     public DbSet<UserProject> UserProjects => Set<UserProject>();
     public DbSet<UserFavorite> UserFavorites => Set<UserFavorite>();
     public DbSet<StoredCredential> StoredCredentials => Set<StoredCredential>();
+    public DbSet<WorkflowState> WorkflowStates => Set<WorkflowState>();
     public DbSet<Run> Runs => Set<Run>();
     public DbSet<JobRun> JobRuns => Set<JobRun>();
     public DbSet<AgentRecord> Agents => Set<AgentRecord>();
@@ -47,6 +48,13 @@ public sealed class CiDbContext(DbContextOptions<CiDbContext> options) : DbConte
             e.HasIndex(x => new { x.UserId, x.WorkflowName }).IsUnique();
             e.Property(x => x.WorkflowName).IsRequired();
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId);
+        });
+
+        modelBuilder.Entity<WorkflowState>(e =>
+        {
+            e.HasKey(x => x.WorkflowName);
+            e.HasIndex(x => x.WebhookToken).IsUnique().HasFilter("[WebhookToken] IS NOT NULL");
+            e.Property(x => x.WorkflowName).IsRequired();
         });
 
         modelBuilder.Entity<StoredCredential>(e =>

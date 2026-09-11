@@ -217,6 +217,7 @@ function WorkflowRow({
         {item.name}
       </Link>
       <span className="shrink-0 rounded bg-[#eaeef2] px-1.5 py-0.5 text-xs text-[#57606a]">{item.project}</span>
+      {!item.enabled && <span className="shrink-0 rounded bg-[#8c959f] px-1.5 py-0.5 text-xs text-white">已禁用</span>}
 
       {/* branch + latest commit */}
       <div className="hidden min-w-0 flex-1 items-center gap-2 md:flex">
@@ -249,11 +250,13 @@ function WorkflowRow({
 
       <button
         type="button"
+        disabled={!item.enabled}
+        title={!item.enabled ? "任务已禁用" : undefined}
         onClick={(e) => {
           e.stopPropagation();
           onTrigger(item.name);
         }}
-        className="ml-2 flex shrink-0 items-center gap-1 rounded-md bg-[#2da44e] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
+        className="ml-2 flex shrink-0 items-center gap-1 rounded-md bg-[#2da44e] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#2c974b] disabled:cursor-not-allowed disabled:bg-[#8c959f] disabled:opacity-60"
       >
         <Play size={12} />
         Run

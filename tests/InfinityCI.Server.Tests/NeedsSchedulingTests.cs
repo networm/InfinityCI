@@ -48,6 +48,7 @@ public class NeedsSchedulingTests : IDisposable
         var credentialStore = new CredentialStore(_provider.GetRequiredService<IServiceScopeFactory>(),
             new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider().CreateProtector("test"));
         var executor = new JobRunExecutor(Options.Create(_options), logStore, _events, credentialStore, _provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<JobRunExecutor>.Instance);
+        var workflowControl = new WorkflowControlService(_provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<WorkflowControlService>.Instance);
         _queue = new RunQueueService(
             Options.Create(_options),
             _workflowStore,
@@ -57,6 +58,7 @@ public class NeedsSchedulingTests : IDisposable
             aggregator,
             executor,
             localQueue,
+            workflowControl,
             _provider.GetRequiredService<IServiceScopeFactory>(),
             NullLogger<RunQueueService>.Instance);
         _repo = _provider.CreateScope().ServiceProvider.GetRequiredService<RunRepository>();

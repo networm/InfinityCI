@@ -33,6 +33,13 @@ export interface JobRun {
   steps: JobStep[];
 }
 
+export interface WorkflowRuntimeState {
+  workflowName: string;
+  enabled: boolean;
+  webhookToken: string | null;
+  notifyWebhookUrl: string | null;
+}
+
 export interface WorkflowParam {
   name: string;
   default: string;
@@ -81,6 +88,7 @@ export interface WorkflowJobInfo {
 export interface WorkflowInfo {
   name: string;
   project: string;
+  enabled: boolean;
   jobs: WorkflowJobInfo[];
   scm?: { url: string; branch: string | null; ref: string | null; credentials: string | null } | null;
   params?: WorkflowParam[];
@@ -96,6 +104,7 @@ export interface DashboardItem {
   name: string;
   project: string;
   isFavorite: boolean;
+  enabled: boolean;
   branch: string | null;
   commitSha: string | null;
   commitMessage: string | null;

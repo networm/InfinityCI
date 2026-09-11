@@ -5,6 +5,7 @@ using InfinityCI.Core;
 using InfinityCI.Server.Agents;
 using InfinityCI.Server.Auth;
 using InfinityCI.Server.Jobs;
+using InfinityCI.Server.Notifications;
 using Microsoft.AspNetCore.DataProtection;
 using InfinityCI.Server.Runs;
 using LibGit2Sharp;
@@ -28,6 +29,9 @@ public record EnrollmentRequest(string Name, string[] Labels, int MaxConcurrentB
 public record RestoreRequest(string Sha);
 public record CredentialRequest(string Name, string Username, string Secret);
 public record FavoriteRequest(bool Favorite);
+public record EnabledToggleRequest(bool Enabled);
+public record NotifyWebhookRequest(string? Url);
+public record WebhookTriggerRequest(Dictionary<string, string>? Params);
 public record EnabledRequest(bool Enabled);
 
 public static class CiApi
@@ -39,6 +43,7 @@ public static class CiApi
         MapCredentials(app);
         MapJobs(app);
         MapDashboard(app);
+        MapWorkflowControl(app);
         MapRuns(app);
         MapAgents(app);
         MapGitClone(app);
@@ -215,9 +220,10 @@ public static class CiApi
 
     private static void MapJobs(IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/jobs", async (WorkflowStore store, CiDbContext db, ClaimsPrincipal user) =>
+        app.MapGet("/api/jobs", async (WorkflowStore store, WorkflowControlService control, CiDbContext db, ClaimsPrincipal user) =>
         {
             var visible = await VisibleProjectsAsync(user, db);
+            var states = await control.GetAllAsync();
             return Results.Ok(store.Workflows
                 .Where(w => visible is null || visible.Contains(w.Project))
                 .OrderBy(w => w.Name)
@@ -225,6 +231,7 @@ public static class CiApi
                 {
                     w.Name,
                     w.Project,
+                    enabled = states.GetValueOrDefault(w.Name, true),
                     @params = w.Params.Select(p => new { p.Name, p.Default, p.Required, p.Description }),
                     jobs = w.Jobs.Select(j => new { key = j.Key, runsOn = j.Value.RunsOn, needs = j.Value.Needs, steps = j.Value.Steps.Count }),
                 }));
@@ -275,6 +282,44 @@ public static class CiApi
             return Results.Ok(git.History(name));
         }).RequireAuthorization();
 
+        app.MapGet("/api/jobs/{name}/state", async (string name, WorkflowControlService control) =>
+            Results.Ok(await control.GetAsync(name))).RequireAuthorization();
+
+        app.MapPost("/api/jobs/{name}/enabled", async (string name, EnabledToggleRequest request, WorkflowControlService control, WorkflowStore store) =>
+        {
+            if (store.TryGet(name) is null) return Results.NotFound();
+            await control.SetEnabledAsync(name, request.Enabled);
+            return Results.Ok(new { name, enabled = request.Enabled });
+        }).RequireAuthorization("Admins");
+
+        app.MapPost("/api/jobs/{name}/webhook-token", async (string name, WorkflowControlService control, WorkflowStore store, HttpContext http) =>
+        {
+            if (store.TryGet(name) is null) return Results.NotFound();
+            var token = await control.IssueWebhookTokenAsync(name);
+            var baseUrl = $"{http.Request.Scheme}://{http.Request.Host}";
+            return Results.Ok(new
+            {
+                name,
+                token,
+                url = $"{baseUrl}/api/webhooks/{token}",
+                curl = "curl -X POST " + baseUrl + "/api/webhooks/" + token + " -H \"Content-Type: application/json\" -d '\"params\":{{}}'",
+            });
+        }).RequireAuthorization("Admins");
+
+        app.MapDelete("/api/jobs/{name}/webhook-token", async (string name, WorkflowControlService control, WorkflowStore store) =>
+        {
+            if (store.TryGet(name) is null) return Results.NotFound();
+            await control.RevokeWebhookTokenAsync(name);
+            return Results.Ok();
+        }).RequireAuthorization("Admins");
+
+        app.MapPut("/api/jobs/{name}/notify-webhook", async (string name, NotifyWebhookRequest request, WorkflowControlService control, WorkflowStore store) =>
+        {
+            if (store.TryGet(name) is null) return Results.NotFound();
+            await control.SetNotifyWebhookUrlAsync(name, request.Url);
+            return Results.Ok(new { name, url = request.Url });
+        }).RequireAuthorization("Admins");
+
         app.MapGet("/api/jobs/{name}/blob/{sha}", (string name, string sha, WorkflowStore store, WorkflowGitStore git, ClaimsPrincipal user) =>
         {
             if (store.TryGet(name) is null) return Results.NotFound();
@@ -313,9 +358,11 @@ public static class CiApi
             }
             catch (InvalidOperationException ex)
             {
-                // Missing required params come through as InvalidOperationException too.
+                // Missing required params / disabled workflows surface distinctly.
                 if (ex.Message.StartsWith("Missing required parameter", StringComparison.Ordinal))
                     return Results.BadRequest(new { message = ex.Message });
+                if (ex is WorkflowDisabledException)
+                    return Results.Conflict(new { message = ex.Message });
                 return Results.NotFound(new { message = $"Unknown workflow '{name}'." });
             }
         }).RequireAuthorization();
@@ -495,6 +542,7 @@ public static class CiApi
         string Name,
         string Project,
         bool IsFavorite,
+        bool Enabled,
         string? Branch,
         string? CommitSha,
         string? CommitMessage,
@@ -504,7 +552,7 @@ public static class CiApi
 
     private static void MapDashboard(IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/dashboard", async (WorkflowStore store, WorkflowGitStore git, RunRepository repo, CiDbContext db, ClaimsPrincipal user) =>
+        app.MapGet("/api/dashboard", async (WorkflowStore store, WorkflowControlService control, WorkflowGitStore git, RunRepository repo, CiDbContext db, ClaimsPrincipal user) =>
         {
             var userId = long.Parse(user.FindFirst(ClaimTypes.NameIdentifier)!.Value);
             var favorites = (await db.UserFavorites.Where(f => f.UserId == userId).Select(f => f.WorkflowName).ToListAsync())
@@ -516,6 +564,7 @@ public static class CiApi
             {
                 if (visible is not null && !visible.Contains(workflow.Project))
                     continue;
+                var runtime = await control.GetAsync(workflow.Name);
                 // Prefer real SCM source info from the latest checked-out job run;
                 // fall back to the config repo's branch/last commit.
                 var lastRun = (await repo.ListRunsAsync(0, 1, workflow.Name)).FirstOrDefault();
@@ -546,6 +595,7 @@ public static class CiApi
                 items.Add(new DashboardItem(
                     workflow.Name, workflow.Project,
                     favorites.Contains(workflow.Name),
+                    runtime.Enabled,
                     branch, commitSha, commitMessage, commitAuthor, commitWhen,
                     lastRun));
             }
@@ -570,6 +620,34 @@ public static class CiApi
             await db.SaveChangesAsync();
             return Results.Ok(new { isFavorite = favorite });
         }).RequireAuthorization();
+    }
+
+    // -- incoming webhooks (token-authenticated triggers) --
+
+    private static void MapWorkflowControl(IEndpointRouteBuilder app)
+    {
+        app.MapPost("/api/webhooks/{token}", async (string token, WebhookTriggerRequest? request,
+            WorkflowControlService control, RunQueueService queue) =>
+        {
+            var workflowName = await control.FindByWebhookTokenAsync(token);
+            if (workflowName is null)
+                return Results.NotFound(new { message = "Unknown webhook token." });
+            if (!await control.IsEnabledAsync(workflowName))
+                return Results.Conflict(new { message = $"Workflow '{workflowName}' is disabled." });
+            try
+            {
+                var run = await queue.TriggerAsync(workflowName, "webhook", request?.Params);
+                return Results.Ok(new { run.Id, run.WorkflowName, run.Status, run.TriggeredBy });
+            }
+            catch (InvalidOperationException ex)
+            {
+                if (ex.Message.StartsWith("Missing required parameter", StringComparison.Ordinal))
+                    return Results.BadRequest(new { message = ex.Message });
+                if (ex is WorkflowDisabledException)
+                    return Results.Conflict(new { message = ex.Message });
+                return Results.NotFound(new { message = $"Unknown workflow '{workflowName}'." });
+            }
+        }).AllowAnonymous();
     }
 
     // -- read-only git clone (dumb HTTP protocol) --

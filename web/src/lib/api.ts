@@ -5,6 +5,7 @@ import type {
   DashboardItem,
   EnrolledAgent,
   LogLine,
+  WorkflowRuntimeState,
   Me,
   ProjectInfo,
   Run,
@@ -86,6 +87,26 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ sha }),
     }),
+  setWorkflowEnabled: (name: string, enabled: boolean) =>
+    request<{ name: string; enabled: boolean }>(`/api/jobs/${encodeURIComponent(name)}/enabled`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
+  workflowState: (name: string) =>
+    request<WorkflowRuntimeState>(`/api/jobs/${encodeURIComponent(name)}/state`),
+  issueWebhookToken: (name: string) =>
+    request<{ name: string; token: string; url: string; curl: string }>(
+      `/api/jobs/${encodeURIComponent(name)}/webhook-token`,
+      { method: "POST" },
+    ),
+  revokeWebhookToken: (name: string) =>
+    request<unknown>(`/api/jobs/${encodeURIComponent(name)}/webhook-token`, { method: "DELETE" }),
+  setNotifyWebhook: (name: string, url: string | null) =>
+    request<{ name: string; url: string | null }>(`/api/jobs/${encodeURIComponent(name)}/notify-webhook`, {
+      method: "PUT",
+      body: JSON.stringify({ url }),
+    }),
+
   trigger: (name: string, params?: Record<string, string>) =>
     request<Run>(`/api/jobs/${encodeURIComponent(name)}/trigger`, {
       method: "POST",

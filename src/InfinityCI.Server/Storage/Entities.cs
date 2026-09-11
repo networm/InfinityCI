@@ -40,6 +40,17 @@ public sealed class UserFavorite
     public required string WorkflowName { get; set; }
 }
 
+/// <summary>Runtime state of a workflow (enablement, webhook, notifications),
+/// kept out of the config Git repo since these are operational toggles.</summary>
+public sealed class WorkflowState
+{
+    public required string WorkflowName { get; set; }
+    public bool Enabled { get; set; } = true;
+    public string? WebhookToken { get; set; }
+    public string? NotifyWebhookUrl { get; set; }
+    public DateTimeOffset UpdatedUtc { get; set; }
+}
+
 /// <summary>Named Git credential for private repositories; secret is Data-Protection encrypted.</summary>
 public sealed class StoredCredential
 {

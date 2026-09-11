@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import type { HubConnection } from "@microsoft/signalr";
 import { ChevronLeft, ChevronRight, History, Pencil, Play, RefreshCw, Trash2 } from "lucide-react";
 
+import { AutomationCard } from "@/components/automation-card";
 import { HistoryDrawer } from "@/components/history-drawer";
 import { useTriggerWithParams } from "@/components/trigger-dialog";
 import { StatusIcon } from "@/components/status-icon";
@@ -40,6 +41,7 @@ export function WorkflowDetailPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [paramDefs, setParamDefs] = useState<import("@/lib/types").WorkflowParam[]>([]);
+  const [enabled, setEnabled] = useState(true);
   const { requestTrigger, dialog } = useTriggerWithParams();
 
   const loadPage = useCallback(
@@ -70,6 +72,7 @@ export function WorkflowDetailPage() {
         else {
           setWorkflow(found);
           setParamDefs(found.params ?? []);
+          setEnabled(found.enabled);
         }
       })
       .catch((e) => setMessage(e instanceof Error ? e.message : String(e)));
@@ -160,6 +163,7 @@ export function WorkflowDetailPage() {
       <Header
         name={name}
         workflow={workflow}
+        enabled={enabled}
         onTrigger={() => {
           requestTrigger(name, paramDefs, (run) => {
             window.location.assign(`/runs/${run.id}`);
@@ -179,6 +183,10 @@ export function WorkflowDetailPage() {
 
       {message && (
         <div className="rounded-md border border-[#ffc1bc] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">{message}</div>
+      )}
+
+      {isAdmin && (
+        <AutomationCard name={name} onMessage={setMessage} />
       )}
 
       <section>
@@ -290,12 +298,14 @@ export function WorkflowDetailPage() {
 function Header({
   name,
   workflow,
+  enabled,
   onTrigger,
   onHistory,
   onDelete,
 }: {
   name: string;
   workflow: WorkflowInfo | null;
+  enabled: boolean;
   onTrigger: () => void;
   onHistory: () => void;
   onDelete: () => void;
@@ -336,6 +346,7 @@ function Header({
           <History size={13} />
           配置历史
         </button>
+        {!enabled && <span className="rounded bg-[#8c959f] px-2 py-0.5 text-xs text-white">已禁用</span>}
         <Link
           to="/jobs/$name/edit"
           params={{ name }}
