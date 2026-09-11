@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { RefreshCw } from "lucide-react";
 import type { HubConnection } from "@microsoft/signalr";
 
@@ -11,6 +11,7 @@ import { getCiHub } from "@/lib/signalr";
 import type { JobRun, Run, RunsPageItem } from "@/lib/types";
 
 export function RunsListPage() {
+  const navigate = useNavigate();
   const resolveName = useResolveUserName();
   const [items, setItems] = useState<RunsPageItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -111,7 +112,11 @@ export function RunsListPage() {
             </thead>
             <tbody>
               {items.map((item) => (
-                <tr key={item.run.id} className="border-b border-[#d8dee4] last:border-0 hover:bg-[#f6f8fa]">
+                <tr
+                  key={item.run.id}
+                  onClick={() => navigate({ to: "/runs/$runId", params: { runId: String(item.run.id) } })}
+                  className="cursor-pointer border-b border-[#d8dee4] last:border-0 hover:bg-[#f6f8fa]"
+                >
                   <td className="px-3 py-2">
                     <StatusIcon status={item.run.status} />
                   </td>

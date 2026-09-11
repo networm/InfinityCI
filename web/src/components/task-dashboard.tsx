@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Play, RefreshCw, Star } from "lucide-react";
 import type { HubConnection } from "@microsoft/signalr";
 
@@ -28,6 +28,7 @@ function rowColors(status: string | null): { bg: string; bar: string } {
 
 export function TaskDashboard() {
   const { requestTrigger, dialog } = useTriggerWithParams();
+  const navigate = useNavigate();
   const [items, setItems] = useState<DashboardItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -149,7 +150,8 @@ export function TaskDashboard() {
               </h2>
               <div className="space-y-2">
                 {favorites.map((item) => (
-                  <WorkflowRow key={item.name} item={item} onTrigger={trigger} onToggleFavorite={toggleFavorite} />
+                  <WorkflowRow key={item.name} item={item} onTrigger={trigger} onToggleFavorite={toggleFavorite}
+                    onOpen={(target) => navigate({ to: target })} />
                 ))}
               </div>
             </section>
@@ -159,7 +161,8 @@ export function TaskDashboard() {
             {favorites.length > 0 && <h2 className="mb-2 text-sm font-medium text-[#57606a]">全部任务</h2>}
             <div className="space-y-2">
               {others.map((item) => (
-                <WorkflowRow key={item.name} item={item} onTrigger={trigger} onToggleFavorite={toggleFavorite} />
+                <WorkflowRow key={item.name} item={item} onTrigger={trigger} onToggleFavorite={toggleFavorite}
+                  onOpen={(target) => navigate({ to: target })} />
               ))}
             </div>
           </section>
@@ -175,24 +178,32 @@ function WorkflowRow({
   item,
   onTrigger,
   onToggleFavorite,
+  onOpen,
 }: {
   item: DashboardItem;
   onTrigger: (name: string) => void;
   onToggleFavorite: (name: string) => void;
+  onOpen: (target: string) => void;
 }) {
   const lastStatus = item.lastRun?.status ?? null;
   const colors = rowColors(lastStatus);
+  // Whole card clickable: with runs → latest run; never-run → task detail.
+  const openTarget = item.lastRun ? `/runs/${item.lastRun.id}` : `/jobs/${item.name}`;
 
   return (
     <div
-      className="flex items-center gap-3 rounded-md border border-[#d0d7de] px-3 py-2.5"
+      onClick={() => onOpen(openTarget)}
+      className="flex cursor-pointer items-center gap-3 rounded-md border border-[#d0d7de] px-3 py-2.5 transition-shadow hover:shadow-md"
       style={{ backgroundColor: colors.bg, borderLeft: `4px solid ${colors.bar}` }}
     >
       <StatusIcon status={(lastStatus ?? "Queued") as never} size={18} />
       <button
         type="button"
         title={item.isFavorite ? "取消收藏" : "收藏"}
-        onClick={() => onToggleFavorite(item.name)}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleFavorite(item.name);
+        }}
         className="shrink-0"
       >
         <Star size={16} className={item.isFavorite ? "fill-[#eac54f] text-[#eac54f]" : "text-[#8c959f] hover:text-[#eac54f]"} />
@@ -200,6 +211,7 @@ function WorkflowRow({
       <Link
         to="/jobs/$name"
         params={{ name: item.name }}
+        onClick={(e) => e.stopPropagation()}
         className="shrink-0 text-sm font-semibold hover:text-[#0969da] hover:underline"
       >
         {item.name}
@@ -237,7 +249,10 @@ function WorkflowRow({
 
       <button
         type="button"
-        onClick={() => onTrigger(item.name)}
+        onClick={(e) => {
+          e.stopPropagation();
+          onTrigger(item.name);
+        }}
         className="ml-2 flex shrink-0 items-center gap-1 rounded-md bg-[#2da44e] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
       >
         <Play size={12} />
