@@ -146,7 +146,7 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
       `L ${turnX - corner} ${from.cy}`,
       `Q ${turnX} ${from.cy} ${turnX} ${from.cy + dir * corner}`,
       `L ${turnX} ${toCy - dir * corner}`,
-      `Q ${toX} ${toCy} ${toX} ${toCy}`,
+      `Q ${turnX} ${toCy} ${toX} ${toCy}`,
     ].join(" ");
   };
 
