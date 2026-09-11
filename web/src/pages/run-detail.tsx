@@ -242,7 +242,7 @@ function DagView({
   if (!layout) return null;
 
   return (
-    <div className="overflow-x-auto rounded-md border border-[#d0d7de] bg-white p-4">
+    <div className="flex justify-center overflow-x-auto rounded-md border border-[#d0d7de] bg-white p-4">
       <svg width={layout.width} height={layout.height + 24} role="img" aria-label="Job 依赖图" style={{ minWidth: layout.width }}>
         {layout.edges.map((edge) => {
           const highlight = selected === edge.to || selected === edge.from;

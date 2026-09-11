@@ -20,7 +20,7 @@ export interface DagNode {
 export interface DagEdge {
   from: string; // jobKey or "__start"
   to: string; // jobKey or "__end"
-  /** Rounded elbow path from the source circle edge to the target circle edge. */
+  /** Rounded path from the source circle edge to the target circle edge. */
   d: string;
 }
 
@@ -40,8 +40,9 @@ const SPINE_Y = MARGIN + DAG_RADIUS;
 /**
  * Jenkins Blue Ocean-style layered layout: start, the primary job of each
  * layer and the end node sit on one horizontal line; parallel siblings hang
- * below the line in BFS order. Edges are rounded elbows. Cycles are
- * impossible (the server rejects them at parse time).
+ * below the line in BFS order. Fan-out branches share the source's exit point;
+ * converging branches merge at a shared point before a single line enters the
+ * target. Cycles are impossible (the server rejects them at parse time).
  */
 export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLayout | null {
   if (jobRuns.length === 0) return null;
@@ -94,12 +95,10 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
 
   const nodes: DagNode[] = [];
 
-  // Start on the main line.
   const startX = MARGIN + DAG_RADIUS;
   const start: DagNode = { kind: "start", jobKey: null, jobRunId: null, status: null, layer: 0, lane: 0, cx: startX, cy: SPINE_Y };
   nodes.push(start);
 
-  // Job nodes: layer + 1 (room for start), lane 0 for the first job per layer.
   const jobNodeByKey = new Map<string, DagNode>();
   for (const [layer, laneKeys] of [...byLayer.entries()].sort((a, b) => a[0] - b[0])) {
     laneKeys.forEach((jobKey, lane) => {
@@ -119,7 +118,6 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
     });
   }
 
-  // End back on the main line, one column past the deepest job.
   const maxJobLayer = Math.max(...byLayer.keys());
   const end: DagNode = {
     kind: "end",
@@ -133,42 +131,73 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
   };
   nodes.push(end);
 
-  // Rounded elbow: horizontal from source, quarter-turn, vertical, quarter-turn,
-  // horizontal into the target.
-  const elbow = (from: DagNode, to: DagNode): string => {
+  // Horizontal-only line when both endpoints share a row; otherwise a rounded
+  // elbow: horizontal, quarter-turn, vertical, quarter-turn, horizontal.
+  const elbowTo = (from: DagNode, toX: number, toCy: number): string => {
     const x1 = from.cx + DAG_RADIUS;
-    const x2 = to.cx - DAG_RADIUS;
-    if (Math.abs(from.cy - to.cy) < 1) {
-      return `M ${x1} ${from.cy} L ${x2} ${to.cy}`;
+    if (Math.abs(from.cy - toCy) < 1) {
+      return `M ${x1} ${from.cy} L ${toX} ${toCy}`;
     }
-    const midX = (x1 + x2) / 2;
-    const dir = to.cy > from.cy ? 1 : -1;
-    const corner = Math.min(16, Math.abs(to.cy - from.cy) / 2);
+    const dir = toCy > from.cy ? 1 : -1;
+    const corner = Math.min(16, Math.abs(toCy - from.cy) / 2, Math.max(8, Math.abs(toX - x1) / 2));
+    const turnX = toX - corner;
     return [
       `M ${x1} ${from.cy}`,
-      `L ${midX - corner} ${from.cy}`,
-      `Q ${midX} ${from.cy} ${midX} ${from.cy + dir * corner}`,
-      `L ${midX} ${to.cy - dir * corner}`,
-      `Q ${midX} ${to.cy} ${midX + corner} ${to.cy}`,
-      `L ${x2} ${to.cy}`,
+      `L ${turnX - corner} ${from.cy}`,
+      `Q ${turnX} ${from.cy} ${turnX} ${from.cy + dir * corner}`,
+      `L ${turnX} ${toCy - dir * corner}`,
+      `Q ${toX} ${toCy} ${toX} ${toCy}`,
     ].join(" ");
   };
 
-  const edges: DagEdge[] = [];
+  // Group incoming branches per target: multiple sources converge at a shared
+  // merge point first (mirroring the start fan-out), then one line enters.
+  const incoming = new Map<string, DagNode[]>();
+  const addIncoming = (target: DagNode, source: DagNode) => {
+    const key = target.kind === "end" ? "__end" : target.jobKey!;
+    incoming.set(key, [...(incoming.get(key) ?? []), source]);
+  };
   for (const root of keys.filter((k) => (byKey.get(k)?.needs.length ?? 0) === 0)) {
-    const target = jobNodeByKey.get(root)!;
-    edges.push({ from: "__start", to: root, d: elbow(start, target) });
+    addIncoming(jobNodeByKey.get(root)!, start);
   }
   for (const job of jobRuns) {
     for (const need of job.needs) {
-      const from = jobNodeByKey.get(need);
-      const to = jobNodeByKey.get(job.jobKey);
-      if (from && to) edges.push({ from: need, to: job.jobKey, d: elbow(from, to) });
+      const source = jobNodeByKey.get(need);
+      const target = jobNodeByKey.get(job.jobKey);
+      if (source && target) addIncoming(target, source);
     }
   }
   for (const terminal of keys.filter((key) => !keys.some((other) => byKey.get(other)!.needs.includes(key)))) {
-    const from = jobNodeByKey.get(terminal)!;
-    edges.push({ from: terminal, to: "__end", d: elbow(from, end) });
+    addIncoming(end, jobNodeByKey.get(terminal)!);
+  }
+
+  const edges: DagEdge[] = [];
+  for (const [targetKey, sources] of incoming) {
+    const to = targetKey === "__end" ? end : jobNodeByKey.get(targetKey)!;
+    if (sources.length === 1) {
+      // Single source: enter the target directly (shared exit point of start).
+      edges.push({
+        from: sources[0].jobKey ?? "__start",
+        to: targetKey,
+        d: elbowTo(sources[0], to.cx - DAG_RADIUS, to.cy),
+      });
+      continue;
+    }
+    const maxFromX = Math.max(...sources.map((s) => s.cx));
+    const mergeX = (maxFromX + DAG_RADIUS + to.cx - DAG_RADIUS) / 2;
+    for (const source of sources) {
+      edges.push({
+        from: source.jobKey ?? "__start",
+        to: targetKey,
+        d: elbowTo(source, mergeX, to.cy),
+      });
+    }
+    // One shared segment from the merge point into the target.
+    edges.push({
+      from: targetKey,
+      to: targetKey,
+      d: `M ${mergeX} ${to.cy} L ${to.cx - DAG_RADIUS} ${to.cy}`,
+    });
   }
 
   const maxLane = Math.max(0, ...nodes.filter((n) => n.kind === "job").map((n) => n.lane));
