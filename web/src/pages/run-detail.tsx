@@ -247,12 +247,13 @@ function DagView({
         {layout.edges.map((edge) => {
           const highlight = selected === edge.to || selected === edge.from;
           return (
-            <polyline
+            <path
               key={`${edge.from}->${edge.to}`}
-              points={edge.points}
+              d={edge.d}
               fill="none"
               stroke={highlight ? "#0969da" : "#d1d9e0"}
-              strokeWidth={highlight ? 2 : 1.5}
+              strokeWidth={highlight ? 2.5 : 2}
+              strokeLinecap="round"
             />
           );
         })}

@@ -10,7 +10,7 @@ export interface DagNode {
   status: JobRun["status"] | null;
   /** Layer = longest path from the start (left-to-right column index). */
   layer: number;
-  /** Vertical lane within the layer (top-to-bottom row index). */
+  /** Vertical row: 0 = the main line, 1..n = parallel branches hanging below. */
   lane: number;
   /** Circle center coordinates. */
   cx: number;
@@ -20,8 +20,8 @@ export interface DagNode {
 export interface DagEdge {
   from: string; // jobKey or "__start"
   to: string; // jobKey or "__end"
-  /** Elbow polyline from source circle edge to target circle edge. */
-  points: string;
+  /** Rounded elbow path from the source circle edge to the target circle edge. */
+  d: string;
 }
 
 export interface DagLayout {
@@ -31,16 +31,17 @@ export interface DagLayout {
   height: number;
 }
 
-export const DAG_RADIUS = 14;
-const LAYER_GAP = 64; // between circle centers
-const LANE_GAP = 52; // room for the label under each circle
-const MARGIN = 24;
+export const DAG_RADIUS = 16;
+const LAYER_GAP = 132; // horizontal distance between circle centers
+const LANE_GAP = 88; // vertical distance between branch rows
+const MARGIN = 34;
+const SPINE_Y = MARGIN + DAG_RADIUS;
 
 /**
- * Jenkins-style layered DAG (left → right): circular job nodes with labels
- * underneath, plus virtual start/end nodes. Layers are the longest-path depth;
- * within a layer nodes are ordered BFS from the roots to reduce crossings.
- * Cycles are impossible (the server rejects them at parse time).
+ * Jenkins Blue Ocean-style layered layout: start, the primary job of each
+ * layer and the end node sit on one horizontal line; parallel siblings hang
+ * below the line in BFS order. Edges are rounded elbows. Cycles are
+ * impossible (the server rejects them at parse time).
  */
 export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLayout | null {
   if (jobRuns.length === 0) return null;
@@ -66,7 +67,8 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
   };
   keys.forEach(computeLayer);
 
-  // BFS lane assignment from roots.
+  // BFS from the roots orders jobs within each layer; the first job of a layer
+  // rides the main line, its parallel siblings queue below it.
   const byLayer = new Map<number, string[]>();
   const visited = new Set<string>();
   const queue = keys.filter((k) => (byKey.get(k)?.needs.length ?? 0) === 0);
@@ -90,14 +92,14 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
     }
   }
 
-  // Job node layers shift by 1 to make room for the start node; end gets max+2.
-  const maxJobLayer = Math.max(...byLayer.keys());
   const nodes: DagNode[] = [];
-  const push = (node: DagNode) => nodes.push(node);
 
+  // Start on the main line.
   const startX = MARGIN + DAG_RADIUS;
-  push({ kind: "start", jobKey: null, jobRunId: null, status: null, layer: 0, lane: 0, cx: startX, cy: MARGIN + DAG_RADIUS });
+  const start: DagNode = { kind: "start", jobKey: null, jobRunId: null, status: null, layer: 0, lane: 0, cx: startX, cy: SPINE_Y };
+  nodes.push(start);
 
+  // Job nodes: layer + 1 (room for start), lane 0 for the first job per layer.
   const jobNodeByKey = new Map<string, DagNode>();
   for (const [layer, laneKeys] of [...byLayer.entries()].sort((a, b) => a[0] - b[0])) {
     laneKeys.forEach((jobKey, lane) => {
@@ -110,54 +112,70 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
         layer: layer + 1,
         lane,
         cx: startX + (layer + 1) * LAYER_GAP,
-        cy: MARGIN + DAG_RADIUS + lane * LANE_GAP,
+        cy: SPINE_Y + lane * LANE_GAP,
       };
       jobNodeByKey.set(jobKey, node);
-      push(node);
+      nodes.push(node);
     });
   }
 
-  const endLayer = maxJobLayer + 2;
-  const endLaneCenter = MARGIN + DAG_RADIUS + (Math.max(...nodes.filter((n) => n.kind === "job").map((n) => n.lane)) / 2) * LANE_GAP;
-  const endNode: DagNode = {
+  // End back on the main line, one column past the deepest job.
+  const maxJobLayer = Math.max(...byLayer.keys());
+  const end: DagNode = {
     kind: "end",
     jobKey: null,
     jobRunId: null,
     status: runStatus,
-    layer: endLayer,
+    layer: maxJobLayer + 2,
     lane: 0,
-    cx: startX + endLayer * LAYER_GAP,
-    cy: endLaneCenter,
+    cx: startX + (maxJobLayer + 2) * LAYER_GAP,
+    cy: SPINE_Y,
   };
-  push(endNode);
+  nodes.push(end);
 
-  // Edges: start → roots, needs edges, terminals → end.
-  const edges: DagEdge[] = [];
-  const terminals = keys.filter((key) => !keys.some((other) => byKey.get(other)!.needs.includes(key)));
+  // Rounded elbow: horizontal from source, quarter-turn, vertical, quarter-turn,
+  // horizontal into the target.
   const elbow = (from: DagNode, to: DagNode): string => {
     const x1 = from.cx + DAG_RADIUS;
     const x2 = to.cx - DAG_RADIUS;
+    if (Math.abs(from.cy - to.cy) < 1) {
+      return `M ${x1} ${from.cy} L ${x2} ${to.cy}`;
+    }
     const midX = (x1 + x2) / 2;
-    return `${x1},${from.cy} ${midX},${from.cy} ${midX},${to.cy} ${x2},${to.cy}`;
+    const dir = to.cy > from.cy ? 1 : -1;
+    const corner = Math.min(16, Math.abs(to.cy - from.cy) / 2);
+    return [
+      `M ${x1} ${from.cy}`,
+      `L ${midX - corner} ${from.cy}`,
+      `Q ${midX} ${from.cy} ${midX} ${from.cy + dir * corner}`,
+      `L ${midX} ${to.cy - dir * corner}`,
+      `Q ${midX} ${to.cy} ${midX + corner} ${to.cy}`,
+      `L ${x2} ${to.cy}`,
+    ].join(" ");
   };
 
+  const edges: DagEdge[] = [];
   for (const root of keys.filter((k) => (byKey.get(k)?.needs.length ?? 0) === 0)) {
     const target = jobNodeByKey.get(root)!;
-    edges.push({ from: "__start", to: root, points: elbow(nodes[0], target) });
+    edges.push({ from: "__start", to: root, d: elbow(start, target) });
   }
   for (const job of jobRuns) {
     for (const need of job.needs) {
       const from = jobNodeByKey.get(need);
       const to = jobNodeByKey.get(job.jobKey);
-      if (from && to) edges.push({ from: need, to: job.jobKey, points: elbow(from, to) });
+      if (from && to) edges.push({ from: need, to: job.jobKey, d: elbow(from, to) });
     }
   }
-  for (const terminal of terminals) {
+  for (const terminal of keys.filter((key) => !keys.some((other) => byKey.get(other)!.needs.includes(key)))) {
     const from = jobNodeByKey.get(terminal)!;
-    edges.push({ from: terminal, to: "__end", points: elbow(from, endNode) });
+    edges.push({ from: terminal, to: "__end", d: elbow(from, end) });
   }
 
-  const width = endNode.cx + DAG_RADIUS + MARGIN;
-  const height = MARGIN * 2 + DAG_RADIUS * 2 + Math.max(0, Math.max(...nodes.filter((n) => n.kind === "job").map((n) => n.lane))) * LANE_GAP;
-  return { nodes, edges, width, height };
+  const maxLane = Math.max(0, ...nodes.filter((n) => n.kind === "job").map((n) => n.lane));
+  return {
+    nodes,
+    edges,
+    width: end.cx + DAG_RADIUS + MARGIN,
+    height: SPINE_Y + maxLane * LANE_GAP + DAG_RADIUS + MARGIN,
+  };
 }
