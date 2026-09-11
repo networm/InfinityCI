@@ -25,13 +25,25 @@ export function statusColor(status: RunStatus | JobRunStatus): { fg: string; bg:
 export function formatDuration(startedAt: string | null, finishedAt: string | null): string {
   if (!startedAt) return "—";
   const end = finishedAt ? Date.parse(finishedAt) : Date.now();
-  const ms = Math.max(0, end - Date.parse(startedAt));
-  if (ms < 1000) return `${ms}ms`;
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ${s % 60}s`;
-  return `${Math.floor(m / 60)}h ${m % 60}m`;
+  const totalSeconds = Math.floor(Math.max(0, end - Date.parse(startedAt)) / 1000);
+  if (totalSeconds < 1) return "<1s";
+
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  // Show the largest non-zero unit plus the next one down ("1天3小时",
+  // "3小时5分", "8分14秒"); a lone leading unit drops zero followers.
+  const units: [number, string][] = [
+    [days, "天"],
+    [hours, "小时"],
+    [minutes, "分"],
+    [seconds, "秒"],
+  ];
+  const lead = units.findIndex(([value]) => value > 0);
+  const shown = units.slice(lead, lead + 2).filter(([value], index) => index === 0 || value > 0);
+  return shown.map(([value, label]) => `${value}${label}`).join("");
 }
 
 export function formatTime(iso: string | null): string {
