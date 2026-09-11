@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import type { HubConnection } from "@microsoft/signalr";
 import { ChevronLeft, ChevronRight, History, Pencil, Play, RefreshCw, Trash2 } from "lucide-react";
 
@@ -17,6 +17,7 @@ const PAGE_SIZE = 20;
 
 export function WorkflowDetailPage() {
   const { name } = useParams({ from: "/jobs/$name" });
+  const navigate = useNavigate();
   const resolveName = useResolveUserName();
   const [workflow, setWorkflow] = useState<WorkflowInfo | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -119,7 +120,9 @@ export function WorkflowDetailPage() {
           // If the REST page load is older than the snapshot, prefer freshest data.
           setItems((prev) => {
             const byId = new Map(prev.map((i) => [i.run.id, i]));
+            // The dashboard snapshot spans all workflows — keep only this one's.
             for (const fresh of initial) {
+              if (fresh.run.workflowName !== name) continue;
               const current = byId.get(fresh.run.id);
               if (!current || fresh.run.version > current.run.version) byId.set(fresh.run.id, fresh);
             }
@@ -212,7 +215,11 @@ export function WorkflowDetailPage() {
               </thead>
               <tbody>
                 {items.map((item) => (
-                  <tr key={item.run.id} className="border-b border-[#d8dee4] last:border-0 hover:bg-[#f6f8fa]">
+                  <tr
+                    key={item.run.id}
+                    onClick={() => navigate({ to: "/runs/$runId", params: { runId: String(item.run.id) } })}
+                    className="cursor-pointer border-b border-[#d8dee4] last:border-0 hover:bg-[#f6f8fa]"
+                  >
                     <td className="px-3 py-2">
                       <StatusIcon status={item.run.status} />
                     </td>
