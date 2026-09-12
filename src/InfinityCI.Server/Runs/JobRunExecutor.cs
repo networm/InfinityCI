@@ -74,6 +74,8 @@ public sealed class JobRunExecutor(
                 var step = job.Steps[i];
                 // Steps were pre-created (Pending) at trigger time — update in place.
                 var result = jobRun.Steps[i];
+                if (result.Status == JobRunStatus.Success)
+                    continue; // preserved from the previous attempt of a retried run
                 result.Status = JobRunStatus.Running;
                 result.StartedAt = DateTimeOffset.UtcNow;
                 result.StartLine = await logStore.GetEndLineAsync(jobRun.RunId, jobRun.JobKey);

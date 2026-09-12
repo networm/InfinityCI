@@ -405,6 +405,19 @@ public static class CiApi
         app.MapPost("/api/runs/{id:long}/cancel", async (long id, RunQueueService queue) =>
             Results.Ok(new { cancelled = await queue.TryCancelRunAsync(id) })).RequireAuthorization();
 
+        app.MapPost("/api/runs/{id:long}/retry", async (long id, RunQueueService queue) =>
+        {
+            try
+            {
+                var run = await queue.RetryFromFailedAsync(id);
+                return run is null ? Results.NotFound() : Results.Ok(run);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { message = ex.Message });
+            }
+        }).RequireAuthorization();
+
         app.MapGet("/api/runs/{id:long}/logs/{jobKey}", async (long id, string jobKey, JobLogStore logs, long afterLine = 0, int maxLines = 20_000) =>
         {
             var lines = await logs.ReadAfterAsync(id, jobKey, afterLine, maxLines);

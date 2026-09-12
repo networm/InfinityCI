@@ -61,6 +61,7 @@ export const api = {
   run: (id: number) => request<RunsPageItem>(`/api/runs/${id}`),
   cancelRun: (id: number) =>
     request<{ cancelled: boolean }>(`/api/runs/${id}/cancel`, { method: "POST" }),
+  retryRun: (id: number) => request<Run>(`/api/runs/${id}/retry`, { method: "POST" }),
   runLogs: (id: number, jobKey: string, afterLine: number) =>
     request<{ runId: number; jobKey: string; nextLine: number; lines: LogLine[] }>(
       `/api/runs/${id}/logs/${encodeURIComponent(jobKey)}?afterLine=${afterLine}`,

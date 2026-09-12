@@ -156,6 +156,79 @@ public sealed class RunQueueService(
         return hadOpen;
     }
 
+    /// <summary>
+    /// Resumes a failed run in place: failed job runs restart from their first
+    /// failed step (earlier successes are preserved), skipped/cancelled ones
+    /// requeue from scratch, succeeded ones stay untouched.
+    /// </summary>
+    public async Task<Run?> RetryFromFailedAsync(long runId, CancellationToken ct = default)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<RunRepository>();
+        var run = await repo.GetRunAsync(runId, ct);
+        if (run is null)
+            return null;
+        if (run.Status != RunStatus.Failed)
+            throw new InvalidOperationException($"Run {runId} is {run.Status}; only failed runs can be retried.");
+
+        var workflow = workflowStore.TryGet(run.WorkflowName);
+        var jobRuns = await repo.GetJobRunsAsync(runId, ct);
+
+        run.Status = RunStatus.Running;
+        run.FinishedAt = null;
+        await repo.SaveRunTransitionAsync(run, ct);
+        await events.PublishRunUpdatedAsync(run);
+
+        foreach (var jobRun in jobRuns.Where(j => j.Status != JobRunStatus.Success))
+        {
+            var firstRetry = ResetForRetry(jobRun, workflow?.Jobs.GetValueOrDefault(jobRun.JobKey));
+            await repo.SaveJobRunTransitionAsync(jobRun, ct);
+            await events.PublishJobRunUpdatedAsync(jobRun);
+            await logStore.AppendAndPublishAsync(events, runId, jobRun.JobKey, 0, firstRetry is { } step
+                ? $"[server] retrying from failed step '{step}'."
+                : "[server] job requeued by retry (no preserved steps).");
+        }
+
+        // Needs-aware dispatch: preserved successes release their dependents, reset
+        // ones enqueue when ready, cascade skips apply against the new state.
+        await aggregator.EvaluateRunAsync(runId);
+        await events.PublishRunUpdatedAsync(run);
+        logger.LogInformation("Run {RunId} for workflow {Workflow} retried from failed step(s) by user request",
+            run.Id, run.WorkflowName);
+        return run;
+    }
+
+    /// <summary>
+    /// Resets a non-succeeded job run for retry. Returns the name of the step the
+    /// job will resume from, or null when the job restarts from the first step.
+    /// </summary>
+    private static string? ResetForRetry(JobRun jobRun, WorkflowJob? job)
+    {
+        // The workflow definition may have been edited since the run: only a step
+        // count match lets us trust the preserved per-step outcomes.
+        var canResume = job is not null && job.Steps.Count == jobRun.Steps.Count;
+        var failedIndex = canResume ? jobRun.Steps.FindIndex(s => s.Status == JobRunStatus.Failed) : -1;
+
+        jobRun.Status = JobRunStatus.Queued;
+        jobRun.StartedAt = null;
+        jobRun.FinishedAt = null;
+        jobRun.ExitCode = null;
+
+        for (var i = 0; i < jobRun.Steps.Count; i++)
+        {
+            if (canResume && jobRun.Steps[i].Status == JobRunStatus.Success)
+                continue; // preserved from the previous attempt
+            var step = jobRun.Steps[i];
+            step.Status = JobRunStatus.Pending;
+            step.ExitCode = null;
+            step.StartedAt = null;
+            step.FinishedAt = null;
+            step.StartLine = 0;
+            step.EndLine = 0;
+        }
+        return failedIndex >= 0 ? job!.Steps[failedIndex].Name : null;
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await RecoverInterruptedJobRunsAsync(stoppingToken);

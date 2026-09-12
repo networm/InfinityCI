@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
 import type { HubConnection } from "@microsoft/signalr";
-import { Ban, ChevronDown, ChevronRight, Download } from "lucide-react";
+import { Ban, ChevronDown, ChevronRight, Download, RotateCcw } from "lucide-react";
 
 import { StatusIcon } from "@/components/status-icon";
 import { api } from "@/lib/api";
@@ -25,6 +25,7 @@ export function BuildDetailPage() {
   const [jobFilter, setJobFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   // Per-job line cursors guard against backfill/live overlap duplicates.
   const cursors = useRef<Record<string, number>>({});
@@ -128,6 +129,26 @@ export function BuildDetailPage() {
             <span>
               由 {resolveName(run.triggeredBy)} 触发 · 项目 {run.project}
             </span>
+          )}
+          {run?.status === "Failed" && (
+            <button
+              type="button"
+              disabled={retrying}
+              onClick={async () => {
+                setRetrying(true);
+                try {
+                  await api.retryRun(runId);
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : String(e));
+                } finally {
+                  setRetrying(false);
+                }
+              }}
+              className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-2.5 py-1.5 text-xs text-[#1a7f37] hover:bg-[#dafbe1]"
+            >
+              <RotateCcw size={12} />
+              从失败的 Step 重试
+            </button>
           )}
           {isRunOpen && (
             <button
