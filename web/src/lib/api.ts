@@ -51,6 +51,7 @@ export const api = {
   login: (username: string, password: string) =>
     request<Me>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
   logout: () => request<unknown>("/api/auth/logout", { method: "POST" }),
+  authConfig: () => request<{ ldapEnabled: boolean }>("/api/auth/config"),
 
   // runs
   runs: (skip = 0, take = 30) => request<RunsPageItem[]>(`/api/runs?skip=${skip}&take=${take}`),

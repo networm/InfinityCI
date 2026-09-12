@@ -63,6 +63,7 @@ const en = {
     submit: "Sign in",
     submitting: "Signing in…",
     failed: "Sign-in failed",
+    ldapHint: "LDAP is enabled: sign in with your directory account or local account.",
   },
   notFound: "Page not found.",
   dashboard: {

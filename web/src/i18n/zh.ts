@@ -63,6 +63,7 @@ const zh = {
     submit: "登录",
     submitting: "登录中…",
     failed: "登录失败",
+    ldapHint: "该服务器启用了 LDAP：可使用目录账号或本地账号登录。",
   },
   notFound: "页面不存在。",
   dashboard: {

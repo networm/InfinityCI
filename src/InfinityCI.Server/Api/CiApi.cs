@@ -52,25 +52,74 @@ public static class CiApi
 
     // -- auth --
 
+    private static async Task<IResult> SignInAsync(CiDbContext db, HttpContext http, User user)
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.Name, user.Username),
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Role, user.Role),
+        };
+        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
+        return Results.Ok(new { username = user.Username, role = user.Role });
+    }
+
     private static void MapAuth(IEndpointRouteBuilder app)
     {
-        app.MapPost("/api/auth/login", async (LoginRequest request, CiDbContext db, HttpContext http) =>
+        app.MapPost("/api/auth/login", async (LoginRequest request, CiDbContext db, HttpContext http, LdapAuthenticator ldap, ILogger<LdapAuthenticator> ldapLogger) =>
         {
             var user = await db.Users.Include(u => u.Projects).ThenInclude(up => up.Project)
                 .FirstOrDefaultAsync(u => u.Username == request.Username);
-            if (user is null || !PasswordHasher.Verify(request.Password, user.PasswordHash))
-                return Results.Unauthorized();
 
-            var claims = new List<Claim>
+            // Local accounts first: any user with a stored password hash.
+            if (user is { } local
+                && !string.IsNullOrEmpty(local.PasswordHash)
+                && PasswordHasher.Verify(request.Password, local.PasswordHash))
             {
-                new(ClaimTypes.Name, user.Username),
-                new(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new(ClaimTypes.Role, user.Role),
-            };
-            var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-            await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
-            return Results.Ok(new { username = user.Username, role = user.Role });
+                return await SignInAsync(db, http, local);
+            }
+
+            // LDAP fallback: verify against the directory; first successful login
+            // auto-provisions a plain User account without a local password.
+            if (ldap.Enabled)
+            {
+                LdapUser? ldapUser;
+                try
+                {
+                    ldapUser = ldap.Authenticate(request.Username, request.Password);
+                }
+                catch (Exception ex)
+                {
+                    // Directory unreachable/misconfigured: generic 401, details in the log.
+                    ldapLogger.LogError(ex, "LDAP authentication for '{Username}' failed", request.Username);
+                    return Results.Unauthorized();
+                }
+                if (ldapUser is not null)
+                {
+                    if (user is null)
+                    {
+                        user = new User
+                        {
+                            Username = request.Username.Trim(),
+                            DisplayName = ldapUser.DisplayName,
+                            PasswordHash = "", // LDAP-only: no local password until an admin sets one
+                            Role = AppRoles.User,
+                        };
+                        db.Users.Add(user);
+                        await db.SaveChangesAsync();
+                        user = await db.Users.Include(u => u.Projects).ThenInclude(up => up.Project)
+                            .FirstAsync(u => u.Id == user.Id);
+                    }
+                    return await SignInAsync(db, http, user);
+                }
+            }
+
+            return Results.Unauthorized();
         }).AllowAnonymous();
+
+        app.MapGet("/api/auth/config", (LdapAuthenticator ldap) =>
+            Results.Ok(new { ldapEnabled = ldap.Enabled })).AllowAnonymous();
 
         app.MapPost("/api/auth/logout", async (HttpContext http) =>
         {
@@ -144,6 +193,8 @@ public static class CiApi
                     u.Username,
                     u.DisplayName,
                     u.Role,
+                    // LDAP-provisioned users have no local password (empty hash).
+                    hasPassword = u.PasswordHash != "",
                     projects = u.Projects.Select(up => new { up.ProjectId, up.Project.Name }),
                 })
                 .OrderBy(u => u.Username).ToListAsync()))

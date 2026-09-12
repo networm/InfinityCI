@@ -258,7 +258,14 @@ function UsersSection() {
           <tbody>
             {users.map((user) => (
               <tr key={user.id} className="border-b border-[#d8dee4] last:border-0">
-                <td className="px-4 py-2 font-medium">{user.username}</td>
+                <td className="px-4 py-2 font-medium">
+                  {user.username}
+                  {user.hasPassword === false && (
+                    <span className="ml-1.5 rounded bg-[#ddf4ff] px-1.5 py-0.5 text-xs font-normal text-[#0969da]">
+                      LDAP
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-2 text-[#57606a]">{user.displayName ?? "—"}</td>
                 <td className="px-4 py-2">
                   <select

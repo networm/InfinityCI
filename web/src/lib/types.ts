@@ -138,6 +138,8 @@ export interface UserInfo {
   username: string;
   displayName: string | null;
   role: UserRole;
+  /** False for LDAP-provisioned users that have no local password. */
+  hasPassword?: boolean;
   projects: { projectId: number; name: string }[];
 }
 

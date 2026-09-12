@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { LanguageToggle } from "@/components/language-toggle";
@@ -12,6 +12,14 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [ldapEnabled, setLdapEnabled] = useState(false);
+
+  useEffect(() => {
+    api
+      .authConfig()
+      .then((config) => setLdapEnabled(config.ldapEnabled))
+      .catch(() => setLdapEnabled(false));
+  }, []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -35,6 +43,11 @@ export function LoginPage() {
         </div>
         <h1 className="mb-1 text-center text-2xl font-semibold tracking-tight">Infinity CI</h1>
         <p className="mb-5 text-center text-sm text-[#57606a]">{t("login.prompt")}</p>
+        {ldapEnabled && (
+          <p className="mb-4 rounded-md border border-[#a5b8fc] bg-[#ddf4ff] px-3 py-2 text-center text-xs text-[#0550ae]">
+            {t("login.ldapHint")}
+          </p>
+        )}
         <form onSubmit={submit} className="space-y-4">
           <label className="block text-sm">
             <span className="mb-1 block font-medium">{t("login.username")}</span>

@@ -36,6 +36,10 @@ builder.Services.Configure<CiServerOptions>(builder.Configuration.GetSection(CiS
 // Also expose the bound instance directly for consumers taking CiServerOptions.
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<CiServerOptions>>().Value);
 
+// LDAP directory login (disabled unless InfinityCI:Ldap:Enabled is true).
+builder.Services.Configure<LdapOptions>(builder.Configuration.GetSection(LdapOptions.SectionName));
+builder.Services.AddSingleton<LdapAuthenticator>();
+
 builder.Services.AddDbContext<CiDbContext>((sp, db) =>
 {
     var options = sp.GetRequiredService<IOptions<CiServerOptions>>().Value;
