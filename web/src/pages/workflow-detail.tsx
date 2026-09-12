@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import type { HubConnection } from "@microsoft/signalr";
-import { ChevronLeft, ChevronRight, History, Pencil, Play, RefreshCw, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Copy, History, Pencil, Play, RefreshCw, Trash2 } from "lucide-react";
 
 import { AutomationCard } from "@/components/automation-card";
 import { HistoryDrawer } from "@/components/history-drawer";
@@ -354,6 +354,14 @@ function Header({
         >
           <Pencil size={13} />
           编辑
+        </Link>
+        <Link
+          to="/jobs/new"
+          search={{ from: name }}
+          className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] px-3 py-1.5 text-sm hover:bg-[#f3f4f6]"
+        >
+          <Copy size={13} />
+          复制
         </Link>
         <button
           type="button"

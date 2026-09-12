@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { Plus, Trash2 } from "lucide-react";
 import { dump as yamlDump, load as yamlLoad } from "js-yaml";
 
@@ -64,12 +64,33 @@ function emptyStep(): EditorStep {
   return { name: "", command: "echo hello", shell: "", continueOnError: false };
 }
 
+// The form model covers name/project/scm/jobs only; anything else (workflow
+// params, job/step env) would be dropped by a form round-trip, so copies of
+// such workflows must stay in YAML mode where the text is preserved verbatim.
+function formRepresentable(text: string): boolean {
+  let doc: Record<string, unknown>;
+  try {
+    doc = (yamlLoad(text) ?? {}) as Record<string, unknown>;
+  } catch {
+    return false;
+  }
+  const hasEnv = (value: unknown) => Boolean(value && typeof value === "object" && "env" in (value as object));
+  if ("params" in doc || hasEnv(doc)) return false;
+  const jobs = Object.values((doc.jobs as Record<string, unknown>) ?? {});
+  return jobs.every((job) => {
+    if (!job || typeof job !== "object" || hasEnv(job)) return false;
+    return ((job.steps as unknown[] | undefined) ?? []).every((step) => !hasEnv(step));
+  });
+}
+
 export function JobEditorPage() {
   // strict: false — /jobs/new has no $name param; reading a sibling route's
   // params with `from` throws on non-matching routes.
   const params = useParams({ strict: false }) as { name?: string };
   const editName = params.name;
   const isEdit = Boolean(editName);
+  const search = useSearch({ strict: false }) as { from?: string };
+  const copyFrom = isEdit ? undefined : search.from;
   const navigate = useNavigate();
 
   const [workflow, setWorkflow] = useState<EditorWorkflow>({
@@ -81,24 +102,26 @@ export function JobEditorPage() {
   const [mode, setMode] = useState<"form" | "yaml">("form");
   const [yamlText, setYamlText] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(isEdit);
+  const [loading, setLoading] = useState(isEdit || Boolean(copyFrom));
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!isEdit || !editName) return;
+    const source = isEdit ? editName : copyFrom;
+    if (!source) return;
     api
-      .jobRaw(editName)
+      .jobRaw(source)
       .then((raw) => {
         setYamlText(raw.yaml);
         try {
           setWorkflow(yamlToModel(raw.yaml));
+          if (!isEdit && !formRepresentable(raw.yaml)) setMode("yaml");
         } catch (e) {
           setMode("yaml"); // workflow not representable in the form — edit as YAML
         }
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
-  }, [editName, isEdit]);
+  }, [editName, isEdit, copyFrom]);
 
   const switchToYaml = () => {
     setYamlText(modelToYaml(workflow));
@@ -166,6 +189,12 @@ export function JobEditorPage() {
           </button>
         </div>
       </div>
+
+      {copyFrom && (
+        <div className="rounded-md border border-[#a5b8fc] bg-[#ddf4ff] px-3 py-2 text-sm text-[#0550ae]">
+          已从任务「{copyFrom}」拷贝配置，请修改名称后保存。
+        </div>
+      )}
 
       {error && (
         <div className="rounded-md border border-[#ffc1bc] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">{error}</div>

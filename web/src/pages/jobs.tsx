@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { History, Pencil, Play, Plus, Trash2 } from "lucide-react";
+import { Copy, History, Pencil, Play, Plus, Trash2 } from "lucide-react";
 
 import { HistoryDrawer } from "@/components/history-drawer";
 import { api } from "@/lib/api";
@@ -134,6 +134,14 @@ export function JobsPage() {
                           >
                             <Pencil size={12} />
                             编辑
+                          </Link>
+                          <Link
+                            to="/jobs/new"
+                            search={{ from: workflow.name }}
+                            className="flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs hover:bg-[#f3f4f6]"
+                          >
+                            <Copy size={12} />
+                            复制
                           </Link>
                           <button
                             type="button"
