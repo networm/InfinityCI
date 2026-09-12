@@ -1,10 +1,13 @@
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 
+import { LanguageToggle } from "@/components/language-toggle";
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/me-context";
 
 export function LoginPage() {
   const { refresh } = useMe();
+  const { t } = useTranslation();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +21,7 @@ export function LoginPage() {
       await api.login(username, password);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "登录失败");
+      setError(err instanceof Error ? err.message : t("login.failed"));
     } finally {
       setBusy(false);
     }
@@ -27,11 +30,14 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#f6f8fa]">
       <div className="w-full max-w-[320px] rounded-lg border border-[#d0d7de] bg-white p-6 shadow-sm">
+        <div className="mb-2 flex justify-end">
+          <LanguageToggle />
+        </div>
         <h1 className="mb-1 text-center text-2xl font-semibold tracking-tight">Infinity CI</h1>
-        <p className="mb-5 text-center text-sm text-[#57606a]">登录以继续</p>
+        <p className="mb-5 text-center text-sm text-[#57606a]">{t("login.prompt")}</p>
         <form onSubmit={submit} className="space-y-4">
           <label className="block text-sm">
-            <span className="mb-1 block font-medium">用户名</span>
+            <span className="mb-1 block font-medium">{t("login.username")}</span>
             <input
               autoFocus
               value={username}
@@ -40,7 +46,7 @@ export function LoginPage() {
             />
           </label>
           <label className="block text-sm">
-            <span className="mb-1 block font-medium">密码</span>
+            <span className="mb-1 block font-medium">{t("login.password")}</span>
             <input
               type="password"
               value={password}
@@ -56,7 +62,7 @@ export function LoginPage() {
             disabled={busy || !username || !password}
             className="w-full rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
           >
-            {busy ? "登录中…" : "登录"}
+            {busy ? t("login.submitting") : t("login.submit")}
           </button>
         </form>
       </div>

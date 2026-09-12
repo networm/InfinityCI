@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { Plus, Trash2 } from "lucide-react";
 import { dump as yamlDump, load as yamlLoad } from "js-yaml";
+import { useTranslation } from "react-i18next";
+import i18next from "i18next";
 
 import { api } from "@/lib/api";
 import type { EditorJob, EditorScm, EditorStep, EditorWorkflow } from "@/lib/types";
@@ -41,8 +43,8 @@ function yamlToModel(text: string): EditorWorkflow {
     project?: string;
     jobs?: Record<string, { runs_on?: string; steps?: { name?: string; command?: string; shell?: string; continue_on_error?: boolean }[] }>;
   };
-  if (!doc || typeof doc !== "object") throw new Error("YAML 内容不是有效的对象");
-  if (!doc.name) throw new Error("缺少 name 字段");
+  if (!doc || typeof doc !== "object") throw new Error(i18next.t("editor.invalidYaml"));
+  if (!doc.name) throw new Error(i18next.t("editor.missingName"));
   const jobs: EditorJob[] = Object.entries(doc.jobs ?? {}).map(([key, job]) => ({
     key,
     runsOn: job?.runs_on ?? "local",
@@ -84,6 +86,7 @@ function formRepresentable(text: string): boolean {
 }
 
 export function JobEditorPage() {
+  const { t } = useTranslation();
   // strict: false — /jobs/new has no $name param; reading a sibling route's
   // params with `from` throws on non-matching routes.
   const params = useParams({ strict: false }) as { name?: string };
@@ -156,12 +159,12 @@ export function JobEditorPage() {
     }
   };
 
-  if (loading) return <div className="text-sm text-[#57606a]">加载中…</div>;
+  if (loading) return <div className="text-sm text-[#57606a]">{t("common.loading")}</div>;
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">{isEdit ? `编辑任务：${editName}` : "新建任务"}</h1>
+        <h1 className="text-xl font-semibold">{isEdit ? t("editor.editTitle", { name: editName }) : t("editor.newTitle")}</h1>
         <div className="flex items-center gap-2">
           <div className="flex overflow-hidden rounded-md border border-[#d0d7de] text-xs">
             <button
@@ -169,7 +172,7 @@ export function JobEditorPage() {
               onClick={() => mode === "yaml" && switchToForm()}
               className={"px-3 py-1.5 " + (mode === "form" ? "bg-[#eaeef2] font-medium" : "bg-white hover:bg-[#f6f8fa]")}
             >
-              表单
+              {t("editor.form")}
             </button>
             <button
               type="button"
@@ -185,14 +188,14 @@ export function JobEditorPage() {
             disabled={saving}
             className="rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
           >
-            {saving ? "保存中…" : "保存"}
+            {saving ? t("common.saving") : t("common.save")}
           </button>
         </div>
       </div>
 
       {copyFrom && (
         <div className="rounded-md border border-[#a5b8fc] bg-[#ddf4ff] px-3 py-2 text-sm text-[#0550ae]">
-          已从任务「{copyFrom}」拷贝配置，请修改名称后保存。
+          {t("editor.copiedBanner", { name: copyFrom })}
         </div>
       )}
 
@@ -204,7 +207,7 @@ export function JobEditorPage() {
         <div className="space-y-4">
           <div className="grid gap-3 rounded-md border border-[#d0d7de] bg-white p-4 sm:grid-cols-2">
             <label className="text-sm">
-              <span className="mb-1 block font-medium">名称</span>
+              <span className="mb-1 block font-medium">{t("editor.name")}</span>
               <input
                 value={workflow.name}
                 disabled={isEdit}
@@ -213,7 +216,7 @@ export function JobEditorPage() {
               />
             </label>
             <label className="text-sm">
-              <span className="mb-1 block font-medium">项目</span>
+              <span className="mb-1 block font-medium">{t("editor.project")}</span>
               <input
                 value={workflow.project}
                 onChange={(e) => setWorkflow({ ...workflow, project: e.target.value })}
@@ -224,28 +227,28 @@ export function JobEditorPage() {
 
           <div className="rounded-md border border-[#d0d7de] bg-white p-4">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm font-medium">Git 源码（SCM，可选）</span>
+              <span className="text-sm font-medium">{t("editor.scm")}</span>
               <button
                 type="button"
                 onClick={() => setWorkflow({ ...workflow, scm: workflow.scm ? null : { url: "", branch: "", ref: "", credentials: "" } })}
                 className="text-xs text-[#0969da] hover:underline"
               >
-                {workflow.scm ? "移除" : "添加"}
+                {workflow.scm ? t("editor.remove") : t("editor.add")}
               </button>
             </div>
             {workflow.scm && (
               <div className="grid gap-2 sm:grid-cols-4">
                 <label className="text-xs sm:col-span-2">
-                  <span className="mb-1 block font-medium text-[#57606a]">仓库 URL</span>
+                  <span className="mb-1 block font-medium text-[#57606a]">{t("editor.scmUrl")}</span>
                   <input
                     value={workflow.scm.url}
                     onChange={(e) => setWorkflow({ ...workflow, scm: { ...workflow.scm!, url: e.target.value } })}
-                    placeholder="https://... 或本地路径"
+                    placeholder={t("editor.scmUrlPlaceholder")}
                     className="w-full rounded-md border border-[#d0d7de] px-2 py-1 font-mono text-xs outline-none focus:border-[#0969da]"
                   />
                 </label>
                 <label className="text-xs">
-                  <span className="mb-1 block font-medium text-[#57606a]">分支</span>
+                  <span className="mb-1 block font-medium text-[#57606a]">{t("editor.scmBranch")}</span>
                   <input
                     value={workflow.scm.branch}
                     onChange={(e) => setWorkflow({ ...workflow, scm: { ...workflow.scm!, branch: e.target.value } })}
@@ -253,7 +256,7 @@ export function JobEditorPage() {
                   />
                 </label>
                 <label className="text-xs">
-                  <span className="mb-1 block font-medium text-[#57606a]">Ref（tag/commit）</span>
+                  <span className="mb-1 block font-medium text-[#57606a]">{t("editor.scmRef")}</span>
                   <input
                     value={workflow.scm.ref}
                     onChange={(e) => setWorkflow({ ...workflow, scm: { ...workflow.scm!, ref: e.target.value } })}
@@ -261,7 +264,7 @@ export function JobEditorPage() {
                   />
                 </label>
                 <label className="text-xs sm:col-span-4">
-                  <span className="mb-1 block font-medium text-[#57606a]">凭据名称（Agents 页下方「凭据管理」创建）</span>
+                  <span className="mb-1 block font-medium text-[#57606a]">{t("editor.scmCredentials")}</span>
                   <input
                     value={workflow.scm.credentials}
                     onChange={(e) => setWorkflow({ ...workflow, scm: { ...workflow.scm!, credentials: e.target.value } })}
@@ -276,7 +279,7 @@ export function JobEditorPage() {
             <div key={jobIndex} className="rounded-md border border-[#d0d7de] bg-white p-4">
               <div className="mb-3 flex items-center gap-2">
                 <label className="text-sm">
-                  <span className="mr-2 text-xs font-medium text-[#57606a]">Job Key</span>
+                  <span className="mr-2 text-xs font-medium text-[#57606a]">{t("editor.jobKey")}</span>
                   <input
                     value={job.key}
                     onChange={(e) => {
@@ -288,7 +291,7 @@ export function JobEditorPage() {
                   />
                 </label>
                 <label className="text-sm">
-                  <span className="mr-2 text-xs font-medium text-[#57606a]">运行位置</span>
+                  <span className="mr-2 text-xs font-medium text-[#57606a]">{t("editor.runsOn")}</span>
                   <select
                     value={job.runsOn.startsWith("agent") ? "agent" : "local"}
                     onChange={(e) => {
@@ -298,8 +301,8 @@ export function JobEditorPage() {
                     }}
                     className="rounded-md border border-[#d0d7de] px-2 py-1 text-sm outline-none focus:border-[#0969da]"
                   >
-                    <option value="local">本地（Server）</option>
-                    <option value="agent">Agent</option>
+                    <option value="local">{t("editor.runsOnLocal")}</option>
+                    <option value="agent">{t("editor.runsOnAgent")}</option>
                   </select>
                 </label>
                 {workflow.jobs.length > 1 && (
@@ -309,7 +312,7 @@ export function JobEditorPage() {
                     className="ml-auto flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs text-[#cf222e] hover:bg-[#ffebe9]"
                   >
                     <Trash2 size={12} />
-                    删除 Job
+                    {t("editor.deleteJob")}
                   </button>
                 )}
               </div>
@@ -317,10 +320,10 @@ export function JobEditorPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs text-[#57606a]">
-                    <th className="w-48 pb-1">步骤名</th>
-                    <th className="pb-1">命令</th>
-                    <th className="w-28 pb-1">Shell</th>
-                    <th className="w-10 pb-1">继续</th>
+                    <th className="w-48 pb-1">{t("editor.stepName")}</th>
+                    <th className="pb-1">{t("editor.command")}</th>
+                    <th className="w-28 pb-1">{t("editor.shell")}</th>
+                    <th className="w-10 pb-1">{t("editor.continue")}</th>
                     <th className="w-10 pb-1" />
                   </tr>
                 </thead>
@@ -352,7 +355,7 @@ export function JobEditorPage() {
                       <td className="py-1.5 pr-2">
                         <input
                           value={step.shell}
-                          placeholder="默认"
+                          placeholder={t("editor.shellDefaultPlaceholder")}
                           onChange={(e) => {
                             const steps = [...job.steps];
                             steps[stepIndex] = { ...step, shell: e.target.value };
@@ -399,7 +402,7 @@ export function JobEditorPage() {
                 className="mt-2 flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs hover:bg-[#f6f8fa]"
               >
                 <Plus size={12} />
-                添加步骤
+                {t("editor.addStep")}
               </button>
             </div>
           ))}
@@ -415,7 +418,7 @@ export function JobEditorPage() {
             className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-3 py-1.5 text-sm hover:bg-[#f6f8fa]"
           >
             <Plus size={14} />
-            添加 Job（并行执行）
+            {t("editor.addJob")}
           </button>
         </div>
       ) : (

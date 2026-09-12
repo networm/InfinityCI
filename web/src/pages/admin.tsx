@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/me-context";
 import type { ProjectInfo, UserInfo, UserRole } from "@/lib/types";
 
 export function AdminPage() {
+  const { t } = useTranslation();
   const { me } = useMe();
   const isSuperAdmin = me?.role === "SuperAdmin";
 
   return (
     <div className="space-y-8">
-      <h1 className="text-xl font-semibold">管理</h1>
+      <h1 className="text-xl font-semibold">{t("admin.title")}</h1>
       <ProjectsSection />
       {isSuperAdmin && <UsersSection />}
     </div>
@@ -19,6 +21,7 @@ export function AdminPage() {
 }
 
 function ProjectsSection() {
+  const { t } = useTranslation();
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [name, setName] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -38,11 +41,11 @@ function ProjectsSection() {
 
   return (
     <section>
-      <h2 className="mb-2 text-sm font-medium text-[#57606a]">项目</h2>
+      <h2 className="mb-2 text-sm font-medium text-[#57606a]">{t("admin.projectsTitle")}</h2>
       <div className="rounded-md border border-[#d0d7de] bg-white p-4">
         <div className="mb-3 flex items-end gap-3">
           <label className="text-sm">
-            <span className="mb-1 block text-xs font-medium text-[#57606a]">新项目名称</span>
+            <span className="mb-1 block text-xs font-medium text-[#57606a]">{t("admin.newProjectName")}</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -64,11 +67,11 @@ function ProjectsSection() {
             className="flex items-center gap-1.5 rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
           >
             <Plus size={14} />
-            创建项目
+            {t("admin.createProject")}
           </button>
         </div>
         {projects.length === 0 ? (
-          <div className="text-sm text-[#57606a]">暂无项目。</div>
+          <div className="text-sm text-[#57606a]">{t("admin.noProjects")}</div>
         ) : (
           <table className="w-full text-sm">
             <tbody>
@@ -80,7 +83,7 @@ function ProjectsSection() {
                     <button
                       type="button"
                       onClick={async () => {
-                        if (!window.confirm(`删除项目「${project.name}」？`)) return;
+                        if (!window.confirm(t("admin.confirmDeleteProject", { name: project.name }))) return;
                         try {
                           await api.deleteProject(project.id);
                           await reload();
@@ -91,7 +94,7 @@ function ProjectsSection() {
                       className="inline-flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs text-[#cf222e] hover:bg-[#ffebe9]"
                     >
                       <Trash2 size={12} />
-                      删除
+                      {t("common.delete")}
                     </button>
                   </td>
                 </tr>
@@ -105,6 +108,7 @@ function ProjectsSection() {
 }
 
 function UsersSection() {
+  const { t } = useTranslation();
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -141,7 +145,7 @@ function UsersSection() {
 
   return (
     <section>
-      <h2 className="mb-2 text-sm font-medium text-[#57606a]">用户（超级管理员）</h2>
+      <h2 className="mb-2 text-sm font-medium text-[#57606a]">{t("admin.usersTitle")}</h2>
       {message && (
         <div className="mb-3 rounded-md border border-[#ffc1bc] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">{message}</div>
       )}
@@ -150,7 +154,7 @@ function UsersSection() {
         <div className="mb-4 rounded-md border border-[#d0d7de] bg-white p-4">
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium text-[#57606a]">用户名</span>
+              <span className="mb-1 block text-xs font-medium text-[#57606a]">{t("columns.username")}</span>
               <input
                 value={form.username}
                 onChange={(e) => setForm({ ...form, username: e.target.value })}
@@ -158,7 +162,7 @@ function UsersSection() {
               />
             </label>
             <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium text-[#57606a]">姓名</span>
+              <span className="mb-1 block text-xs font-medium text-[#57606a]">{t("columns.displayName")}</span>
               <input
                 value={form.displayName}
                 onChange={(e) => setForm({ ...form, displayName: e.target.value })}
@@ -166,7 +170,7 @@ function UsersSection() {
               />
             </label>
             <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium text-[#57606a]">密码</span>
+              <span className="mb-1 block text-xs font-medium text-[#57606a]">{t("login.password")}</span>
               <input
                 type="password"
                 value={form.password}
@@ -175,20 +179,20 @@ function UsersSection() {
               />
             </label>
             <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium text-[#57606a]">角色</span>
+              <span className="mb-1 block text-xs font-medium text-[#57606a]">{t("columns.role")}</span>
               <select
                 value={form.role}
                 onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })}
                 className="w-full rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da]"
               >
-                <option value="User">普通用户</option>
-                <option value="Admin">管理员</option>
-                <option value="SuperAdmin">超级管理员</option>
+                <option value="User">{t("admin.roleUser")}</option>
+                <option value="Admin">{t("admin.roleAdmin")}</option>
+                <option value="SuperAdmin">{t("admin.roleSuperAdmin")}</option>
               </select>
             </label>
           </div>
           <div className="mt-3">
-            <span className="mb-1 block text-xs font-medium text-[#57606a]">可见项目</span>
+            <span className="mb-1 block text-xs font-medium text-[#57606a]">{t("columns.visibleProjects")}</span>
             <div className="flex flex-wrap gap-3">
               {projects.map((project) => (
                 <label key={project.id} className="flex items-center gap-1.5 text-sm">
@@ -218,14 +222,14 @@ function UsersSection() {
               }}
               className="rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
             >
-              创建用户
+              {t("admin.createUser")}
             </button>
             <button
               type="button"
               onClick={() => setCreating(false)}
               className="rounded-md border border-[#d0d7de] px-3 py-1.5 text-sm hover:bg-[#f6f8fa]"
             >
-              取消
+              {t("common.cancel")}
             </button>
           </div>
         </div>
@@ -236,7 +240,7 @@ function UsersSection() {
           className="mb-3 flex items-center gap-1.5 rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b]"
         >
           <Plus size={14} />
-          新建用户
+          {t("admin.newUser")}
         </button>
       )}
 
@@ -244,10 +248,11 @@ function UsersSection() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[#d0d7de] bg-[#f6f8fa] text-left text-xs text-[#57606a]">
-              <th className="px-4 py-2">用户名</th>
-              <th className="px-4 py-2">角色</th>
-              <th className="px-4 py-2">可见项目</th>
-              <th className="px-4 py-2 text-right">操作</th>
+              <th className="px-4 py-2">{t("columns.username")}</th>
+              <th className="px-4 py-2">{t("columns.displayName")}</th>
+              <th className="px-4 py-2">{t("columns.role")}</th>
+              <th className="px-4 py-2">{t("columns.visibleProjects")}</th>
+              <th className="px-4 py-2 text-right">{t("columns.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -268,9 +273,9 @@ function UsersSection() {
                     }}
                     className="rounded border border-[#d0d7de] px-2 py-1 text-xs outline-none focus:border-[#0969da]"
                   >
-                    <option value="User">普通用户</option>
-                    <option value="Admin">管理员</option>
-                    <option value="SuperAdmin">超级管理员</option>
+                    <option value="User">{t("admin.roleUser")}</option>
+                    <option value="Admin">{t("admin.roleAdmin")}</option>
+                    <option value="SuperAdmin">{t("admin.roleSuperAdmin")}</option>
                   </select>
                 </td>
                 <td className="px-4 py-2">
@@ -280,7 +285,7 @@ function UsersSection() {
                         {project.name}
                       </span>
                     ))}
-                    {user.projects.length === 0 && <span className="text-xs text-[#57606a]">（全部或无）</span>}
+                    {user.projects.length === 0 && <span className="text-xs text-[#57606a]">{t("admin.allOrNone")}</span>}
                   </div>
                   <div className="mt-1 flex flex-wrap gap-1">
                     {projects
@@ -325,22 +330,22 @@ function UsersSection() {
                   </div>
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (!window.confirm(`删除用户「${user.username}」？`)) return;
-                      try {
-                        await api.deleteUser(user.id);
-                        await reload();
-                      } catch (err) {
-                        setMessage(err instanceof Error ? err.message : String(err));
-                      }
-                    }}
-                    className="inline-flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs text-[#cf222e] hover:bg-[#ffebe9]"
-                  >
-                    <Trash2 size={12} />
-                    删除
-                  </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!window.confirm(t("admin.confirmDeleteUser", { username: user.username }))) return;
+                        try {
+                          await api.deleteUser(user.id);
+                          await reload();
+                        } catch (err) {
+                          setMessage(err instanceof Error ? err.message : String(err));
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs text-[#cf222e] hover:bg-[#ffebe9]"
+                    >
+                      <Trash2 size={12} />
+                      {t("common.delete")}
+                    </button>
                 </td>
               </tr>
             ))}

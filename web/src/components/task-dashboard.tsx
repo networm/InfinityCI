@@ -6,8 +6,9 @@ import type { HubConnection } from "@microsoft/signalr";
 import { StatusIcon } from "@/components/status-icon";
 import { useTriggerWithParams } from "@/components/trigger-dialog";
 import { api } from "@/lib/api";
-import { formatDuration } from "@/lib/format";
+import { formatDuration, statusLabel } from "@/lib/format";
 import { getCiHub } from "@/lib/signalr";
+import { useTranslation } from "react-i18next";
 import type { DashboardItem, Run } from "@/lib/types";
 
 /** Status → row background tint + left accent bar (Blue Ocean style). */
@@ -27,6 +28,7 @@ function rowColors(status: string | null): { bg: string; bar: string } {
 }
 
 export function TaskDashboard() {
+  const { t } = useTranslation();
   const { requestTrigger, dialog } = useTriggerWithParams();
   const navigate = useNavigate();
   const [items, setItems] = useState<DashboardItem[]>([]);
@@ -116,14 +118,14 @@ export function TaskDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">任务</h1>
+        <h1 className="text-xl font-semibold">{t("dashboard.title")}</h1>
         <button
           type="button"
           onClick={() => void refresh()}
           className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-3 py-1.5 text-sm hover:bg-[#f3f4f6]"
         >
           <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-          刷新
+          {t("common.refresh")}
         </button>
       </div>
 
@@ -132,12 +134,12 @@ export function TaskDashboard() {
       )}
 
       {loading ? (
-        <div className="text-sm text-[#57606a]">加载中…</div>
+        <div className="text-sm text-[#57606a]">{t("common.loading")}</div>
       ) : items.length === 0 ? (
         <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">
-          还没有任务。
+          {t("dashboard.empty")}
           <Link to="/jobs/new" className="ml-1 text-[#0969da] hover:underline">
-            创建第一个任务 →
+            {t("dashboard.createFirst")}
           </Link>
         </div>
       ) : (
@@ -146,7 +148,7 @@ export function TaskDashboard() {
             <section>
               <h2 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-[#57606a]">
                 <Star size={13} className="fill-[#eac54f] text-[#eac54f]" />
-                收藏任务
+                {t("dashboard.favorites")}
               </h2>
               <div className="space-y-2">
                 {favorites.map((item) => (
@@ -158,7 +160,7 @@ export function TaskDashboard() {
           )}
 
           <section>
-            {favorites.length > 0 && <h2 className="mb-2 text-sm font-medium text-[#57606a]">全部任务</h2>}
+            {favorites.length > 0 && <h2 className="mb-2 text-sm font-medium text-[#57606a]">{t("dashboard.all")}</h2>}
             <div className="space-y-2">
               {others.map((item) => (
                 <WorkflowRow key={item.name} item={item} onTrigger={trigger} onToggleFavorite={toggleFavorite}
@@ -185,6 +187,7 @@ function WorkflowRow({
   onToggleFavorite: (name: string) => void;
   onOpen: (target: string) => void;
 }) {
+  const { t } = useTranslation();
   const lastStatus = item.lastRun?.status ?? null;
   const colors = rowColors(lastStatus);
   // Whole card clickable: with runs → latest run; never-run → task detail.
@@ -199,7 +202,7 @@ function WorkflowRow({
       <StatusIcon status={(lastStatus ?? "Queued") as never} size={18} />
       <button
         type="button"
-        title={item.isFavorite ? "取消收藏" : "收藏"}
+        title={item.isFavorite ? t("dashboard.unfavorite") : t("dashboard.favorite")}
         onClick={(e) => {
           e.stopPropagation();
           onToggleFavorite(item.name);
@@ -217,7 +220,7 @@ function WorkflowRow({
         {item.name}
       </Link>
       <span className="shrink-0 rounded bg-[#eaeef2] px-1.5 py-0.5 text-xs text-[#57606a]">{item.project}</span>
-      {!item.enabled && <span className="shrink-0 rounded bg-[#8c959f] px-1.5 py-0.5 text-xs text-white">已禁用</span>}
+      {!item.enabled && <span className="shrink-0 rounded bg-[#8c959f] px-1.5 py-0.5 text-xs text-white">{t("common.disabled")}</span>}
 
       {/* branch + latest commit */}
       <div className="hidden min-w-0 flex-1 items-center gap-2 md:flex">
@@ -240,18 +243,18 @@ function WorkflowRow({
             <Link to="/runs/$runId" params={{ runId: String(item.lastRun.id) }} className="hover:text-[#0969da] hover:underline">
               #{item.lastRun.id}
             </Link>
-            <span>{lastStatus}</span>
+            <span>{lastStatus && statusLabel(lastStatus)}</span>
             <span>{formatDuration(item.lastRun.startedAt, item.lastRun.finishedAt)}</span>
           </>
         ) : (
-          <span>从未运行</span>
+          <span>{t("dashboard.neverRun")}</span>
         )}
       </div>
 
       <button
         type="button"
         disabled={!item.enabled}
-        title={!item.enabled ? "任务已禁用" : undefined}
+        title={!item.enabled ? t("dashboard.disabledTitle") : undefined}
         onClick={(e) => {
           e.stopPropagation();
           onTrigger(item.name);

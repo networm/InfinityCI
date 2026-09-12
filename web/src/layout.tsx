@@ -1,17 +1,20 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 
+import { LanguageToggle } from "@/components/language-toggle";
 import { useMe } from "@/lib/me-context";
 import { useResolveUserName } from "@/lib/user-names";
 
 const tabs = [
-  { to: "/", label: "Dashboard" },
-  { to: "/jobs", label: "任务" },
-  { to: "/runs", label: "Runs" },
-  { to: "/agents", label: "Agents" },
+  { to: "/", key: "nav.dashboard" },
+  { to: "/jobs", key: "nav.jobs" },
+  { to: "/runs", key: "nav.runs" },
+  { to: "/agents", key: "nav.agents" },
 ] as const;
 
 export function AppLayout() {
   const { me, logout } = useMe();
+  const { t } = useTranslation();
   const resolveName = useResolveUserName();
   const location = useRouterState({ select: (s) => s.location.pathname });
 
@@ -37,7 +40,7 @@ export function AppLayout() {
                     (active ? "bg-white/15 font-medium" : "text-white/85")
                   }
                 >
-                  {tab.label}
+                  {t(tab.key)}
                 </Link>
               );
             })}
@@ -49,11 +52,12 @@ export function AppLayout() {
                   (location.startsWith("/admin") ? "bg-white/15 font-medium" : "text-white/85")
                 }
               >
-                管理
+                {t("nav.admin")}
               </Link>
             )}
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
+            <LanguageToggle dark />
             <span className="text-white/80" title={me?.username}>
               {(me && resolveName(me.username)) || me?.username}
               <span className="ml-1.5 rounded bg-white/15 px-1.5 py-0.5 text-xs">{me?.role}</span>
@@ -63,7 +67,7 @@ export function AppLayout() {
               onClick={() => void logout()}
               className="rounded-md border border-white/25 px-2.5 py-1 text-xs hover:bg-white/10"
             >
-              退出
+              {t("nav.logout")}
             </button>
           </div>
         </div>

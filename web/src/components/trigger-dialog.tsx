@@ -1,11 +1,13 @@
 import { useCallback, useMemo, useState, type FormEvent } from "react";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { api } from "@/lib/api";
 import type { Run, WorkflowParam } from "@/lib/types";
 
 /** Jenkins-style "build with parameters" dialog. Renders nothing without params. */
 export function useTriggerWithParams() {
+  const { t } = useTranslation();
   const [workflow, setWorkflow] = useState<{ name: string; params: WorkflowParam[] } | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +61,7 @@ export function useTriggerWithParams() {
         >
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-base font-semibold">
-              参数化触发：<span className="font-mono">{workflow.name}</span>
+              {t("trigger.title")} <span className="font-mono">{workflow.name}</span>
             </h3>
             <button type="button" onClick={() => setWorkflow(null)} className="text-[#57606a] hover:text-[#24292f]">
               <X size={18} />
@@ -91,20 +93,20 @@ export function useTriggerWithParams() {
               onClick={() => setWorkflow(null)}
               className="rounded-md border border-[#d0d7de] px-3 py-1.5 text-sm hover:bg-[#f6f8fa]"
             >
-              取消
+              {t("common.cancel")}
             </button>
             <button
               type="submit"
               disabled={busy || workflow.params.some((p) => p.required && !values[p.name])}
               className="rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
             >
-              {busy ? "触发中…" : "Run"}
+              {busy ? t("trigger.running") : t("common.run")}
             </button>
           </div>
         </form>
       </div>
     );
-  }, [workflow, values, error, busy]);
+  }, [workflow, values, error, busy, t]);
 
   return { requestTrigger, dialog };
 }

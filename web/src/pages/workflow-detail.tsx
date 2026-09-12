@@ -12,6 +12,7 @@ import { useMe } from "@/lib/me-context";
 import { useResolveUserName } from "@/lib/user-names";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import { getCiHub } from "@/lib/signalr";
+import { useTranslation } from "react-i18next";
 import type { JobRun, Run, RunsPageItem, WorkflowInfo } from "@/lib/types";
 
 const PAGE_SIZE = 20;
@@ -20,6 +21,7 @@ export function WorkflowDetailPage() {
   const { name } = useParams({ from: "/jobs/$name" });
   const navigate = useNavigate();
   const resolveName = useResolveUserName();
+  const { t } = useTranslation();
   const [workflow, setWorkflow] = useState<WorkflowInfo | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -148,8 +150,8 @@ export function WorkflowDetailPage() {
   if (notFound) {
     return (
       <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">
-        任务「{name}」不存在或不可见。
-        <Link to="/jobs" className="ml-1 text-[#0969da] hover:underline">返回任务列表</Link>
+        {t("workflow.notFound", { name })}
+        <Link to="/jobs" className="ml-1 text-[#0969da] hover:underline">{t("workflow.backToList")}</Link>
       </div>
     );
   }
@@ -171,7 +173,7 @@ export function WorkflowDetailPage() {
         }}
         onHistory={() => setHistoryOpen(true)}
         onDelete={async () => {
-          if (!window.confirm(`删除任务「${name}」？`)) return;
+          if (!window.confirm(t("workflow.confirmDelete", { name }))) return;
           try {
             await api.deleteJob(name);
             window.location.assign("/jobs");
@@ -191,34 +193,34 @@ export function WorkflowDetailPage() {
 
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-[#57606a]">运行历史（共 {total} 次）</h2>
+          <h2 className="text-sm font-medium text-[#57606a]">{t("workflow.historyTitle", { total })}</h2>
           <button
             type="button"
             onClick={() => void loadPage(page)}
             className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-2.5 py-1 text-xs hover:bg-[#f3f4f6]"
           >
             <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
-            刷新
+            {t("common.refresh")}
           </button>
         </div>
 
         {loading ? (
-          <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">加载中…</div>
+          <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">{t("common.loading")}</div>
         ) : items.length === 0 ? (
           <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">
-            这个任务还没有运行记录 — 点击上方 Run 触发一次。
+            {t("workflow.emptyRuns")}
           </div>
         ) : (
           <div className="overflow-hidden rounded-md border border-[#d0d7de] bg-white">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#d0d7de] bg-[#f6f8fa] text-left text-xs text-[#57606a]">
-                  <th className="w-10 px-3 py-2">状态</th>
+                  <th className="w-10 px-3 py-2">{t("columns.status")}</th>
                   <th className="px-3 py-2">Run</th>
                   <th className="px-3 py-2">Jobs</th>
-                  <th className="px-3 py-2">触发人</th>
-                  <th className="px-3 py-2">时间</th>
-                  <th className="px-3 py-2">耗时</th>
+                  <th className="px-3 py-2">{t("columns.triggeredBy")}</th>
+                  <th className="px-3 py-2">{t("columns.time")}</th>
+                  <th className="px-3 py-2">{t("columns.duration")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -260,7 +262,7 @@ export function WorkflowDetailPage() {
         {total > 0 && (
           <div className="mt-3 flex items-center justify-between text-sm">
             <span className="text-xs text-[#57606a]">
-              第 {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} 条，共 {total} 条
+              {t("workflow.paginationRange", { from: page * PAGE_SIZE + 1, to: Math.min((page + 1) * PAGE_SIZE, total), total })}
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -270,10 +272,10 @@ export function WorkflowDetailPage() {
                 className="flex items-center gap-1 rounded-md border border-[#d0d7de] bg-white px-2.5 py-1.5 text-xs hover:bg-[#f3f4f6] disabled:opacity-40"
               >
                 <ChevronLeft size={12} />
-                上一页
+                {t("workflow.prevPage")}
               </button>
               <span className="text-xs text-[#57606a]">
-                第 {page + 1} / {totalPages} 页
+                {t("workflow.pageInfo", { current: page + 1, totalPages })}
               </span>
               <button
                 type="button"
@@ -281,7 +283,7 @@ export function WorkflowDetailPage() {
                 onClick={() => void loadPage(page + 1)}
                 className="flex items-center gap-1 rounded-md border border-[#d0d7de] bg-white px-2.5 py-1.5 text-xs hover:bg-[#f3f4f6] disabled:opacity-40"
               >
-                下一页
+                {t("workflow.nextPage")}
                 <ChevronRight size={12} />
               </button>
             </div>
@@ -310,6 +312,7 @@ function Header({
   onHistory: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-start justify-between rounded-md border border-[#d0d7de] bg-white p-4">
       <div>
@@ -321,7 +324,7 @@ function Header({
           <div className="mt-2 flex flex-wrap gap-1.5">
             {workflow.jobs.map((job) => (
               <span key={job.key} className="rounded bg-[#f6f8fa] px-2 py-0.5 text-xs text-[#57606a] ring-1 ring-[#d0d7de]">
-                <span className="font-medium text-[#24292f]">{job.key}</span> · {job.steps} 步 · {job.runsOn}
+                <span className="font-medium text-[#24292f]">{job.key}</span> · {t("workflow.stepsCount", { count: job.steps })} · {job.runsOn}
                 {job.needs.length > 0 && ` ← ${job.needs.join(", ")}`}
               </span>
             ))}
@@ -336,7 +339,7 @@ function Header({
           className="flex items-center gap-1.5 rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
         >
           <Play size={13} />
-          Run
+          {t("common.run")}
         </button>
         <button
           type="button"
@@ -344,16 +347,16 @@ function Header({
           className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] px-3 py-1.5 text-sm hover:bg-[#f3f4f6]"
         >
           <History size={13} />
-          配置历史
+          {t("workflow.configHistory")}
         </button>
-        {!enabled && <span className="rounded bg-[#8c959f] px-2 py-0.5 text-xs text-white">已禁用</span>}
+        {!enabled && <span className="rounded bg-[#8c959f] px-2 py-0.5 text-xs text-white">{t("common.disabled")}</span>}
         <Link
           to="/jobs/$name/edit"
           params={{ name }}
           className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] px-3 py-1.5 text-sm hover:bg-[#f3f4f6]"
         >
           <Pencil size={13} />
-          编辑
+          {t("common.edit")}
         </Link>
         <Link
           to="/jobs/new"
@@ -361,7 +364,7 @@ function Header({
           className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] px-3 py-1.5 text-sm hover:bg-[#f3f4f6]"
         >
           <Copy size={13} />
-          复制
+          {t("common.copy")}
         </Link>
         <button
           type="button"
@@ -369,7 +372,7 @@ function Header({
           className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] px-3 py-1.5 text-sm text-[#cf222e] hover:bg-[#ffebe9]"
         >
           <Trash2 size={13} />
-          删除
+          {t("common.delete")}
         </button>
       </div>
     </div>

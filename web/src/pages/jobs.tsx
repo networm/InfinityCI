@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Copy, History, Pencil, Play, Plus, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { HistoryDrawer } from "@/components/history-drawer";
 import { api } from "@/lib/api";
@@ -9,6 +10,7 @@ import type { WorkflowInfo } from "@/lib/types";
 
 export function JobsPage() {
   const { me } = useMe();
+  const { t } = useTranslation();
   const isAdmin = me?.role === "Admin" || me?.role === "SuperAdmin";
   const [workflows, setWorkflows] = useState<WorkflowInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,7 +28,7 @@ export function JobsPage() {
   }, []);
 
   const remove = async (name: string) => {
-    if (!window.confirm(`删除任务「${name}」？`)) return;
+    if (!window.confirm(t("jobs.confirmDelete", { name }))) return;
     try {
       await api.deleteJob(name);
       await reload();
@@ -48,9 +50,9 @@ export function JobsPage() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">任务</h1>
+          <h1 className="text-xl font-semibold">{t("nav.jobs")}</h1>
           <p className="mt-0.5 text-xs text-[#57606a]">
-            配置存放在 Git 仓库中，可只读克隆：{" "}
+            {t("jobs.cloneHint")}{" "}
             <code className="rounded bg-[#eff2f5] px-1.5 py-0.5 font-mono text-xs">
               git clone http://用户:密码@host:5000/git/jobs
             </code>
@@ -62,7 +64,7 @@ export function JobsPage() {
             className="flex items-center gap-1.5 rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b]"
           >
             <Plus size={14} />
-            新建任务
+            {t("jobs.new")}
           </Link>
         )}
       </div>
@@ -72,20 +74,21 @@ export function JobsPage() {
       )}
 
       {loading ? (
-        <div className="text-sm text-[#57606a]">加载中…</div>
+        <div className="text-sm text-[#57606a]">{t("common.loading")}</div>
       ) : workflows.length === 0 ? (
         <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">
-          还没有任务。{isAdmin ? "点击右上角「新建任务」创建。" : "请联系管理员创建。"}
+          {t("jobs.empty")}
+          {isAdmin ? t("jobs.emptyAdminHint") : t("jobs.emptyUserHint")}
         </div>
       ) : (
         <div className="overflow-hidden rounded-md border border-[#d0d7de] bg-white">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#d0d7de] bg-[#f6f8fa] text-left text-xs text-[#57606a]">
-                <th className="px-4 py-2">名称</th>
-                <th className="px-4 py-2">项目</th>
+                <th className="px-4 py-2">{t("columns.name")}</th>
+                <th className="px-4 py-2">{t("columns.project")}</th>
                 <th className="px-4 py-2">Jobs</th>
-                <th className="px-4 py-2 text-right">操作</th>
+                <th className="px-4 py-2 text-right">{t("columns.actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -123,7 +126,7 @@ export function JobsPage() {
                         className="flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs hover:bg-[#f3f4f6]"
                       >
                         <History size={12} />
-                        历史
+                        {t("common.history")}
                       </button>
                       {isAdmin && (
                         <>
@@ -133,7 +136,7 @@ export function JobsPage() {
                             className="flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs hover:bg-[#f3f4f6]"
                           >
                             <Pencil size={12} />
-                            编辑
+                            {t("common.edit")}
                           </Link>
                           <Link
                             to="/jobs/new"
@@ -141,7 +144,7 @@ export function JobsPage() {
                             className="flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs hover:bg-[#f3f4f6]"
                           >
                             <Copy size={12} />
-                            复制
+                            {t("common.copy")}
                           </Link>
                           <button
                             type="button"
@@ -149,7 +152,7 @@ export function JobsPage() {
                             className="flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs text-[#cf222e] hover:bg-[#ffebe9]"
                           >
                             <Trash2 size={12} />
-                            删除
+                            {t("common.delete")}
                           </button>
                         </>
                       )}

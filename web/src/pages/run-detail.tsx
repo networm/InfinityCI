@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
 import type { HubConnection } from "@microsoft/signalr";
 import { Ban, ChevronDown, ChevronRight, Download, RotateCcw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { StatusIcon } from "@/components/status-icon";
 import { api } from "@/lib/api";
@@ -17,6 +18,7 @@ export function BuildDetailPage() {
   const { runId: runIdParam } = useParams({ from: "/runs/$runId" });
   const runId = Number(runIdParam);
   const resolveName = useResolveUserName();
+  const { t } = useTranslation();
 
   const [run, setRun] = useState<Run | null>(null);
   const [jobs, setJobs] = useState<JobRun[]>([]);
@@ -126,9 +128,7 @@ export function BuildDetailPage() {
         </div>
         <div className="flex items-center gap-3 text-xs text-[#57606a]">
           {run && (
-            <span>
-              由 {resolveName(run.triggeredBy)} 触发 · 项目 {run.project}
-            </span>
+            <span>{t("runDetail.triggeredBy", { name: resolveName(run.triggeredBy), project: run.project })}</span>
           )}
           {run?.status === "Failed" && (
             <button
@@ -147,7 +147,7 @@ export function BuildDetailPage() {
               className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-2.5 py-1.5 text-xs text-[#1a7f37] hover:bg-[#dafbe1]"
             >
               <RotateCcw size={12} />
-              从失败的 Step 重试
+              {t("runDetail.retryFromFailedStep")}
             </button>
           )}
           {isRunOpen && (
@@ -165,7 +165,7 @@ export function BuildDetailPage() {
               className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-2.5 py-1.5 text-xs text-[#cf222e] hover:bg-[#ffebe9]"
             >
               <Ban size={12} />
-              取消 Run
+              {t("runDetail.cancelRun")}
             </button>
           )}
         </div>
@@ -173,7 +173,7 @@ export function BuildDetailPage() {
 
       {run && Object.keys(run.params ?? {}).length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-[#57606a]">参数：</span>
+          <span className="text-[#57606a]">{t("runDetail.params")}</span>
           {Object.entries(run.params).map(([key, value]) => (
             <span key={key} className="rounded bg-[#eaeef2] px-1.5 py-0.5 font-mono">
               {key}=<span className="text-[#57606a]">{value}</span>
@@ -200,7 +200,7 @@ export function BuildDetailPage() {
           <input
             value={jobFilter}
             onChange={(e) => setJobFilter(e.target.value)}
-            placeholder="筛选 Job"
+            placeholder={t("runDetail.filterJobs")}
             className="mb-2 w-full rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da]"
           />
           <div className="overflow-hidden rounded-md border border-[#d0d7de] bg-white">
@@ -217,11 +217,11 @@ export function BuildDetailPage() {
                 <StatusIcon status={job.status} size={14} />
                 <span className="truncate">{job.jobKey}</span>
                 <span className="ml-auto text-xs text-[#57606a]">
-                  {job.runsOn.startsWith("agent") ? "Agent" : "本地"}
+                  {job.runsOn.startsWith("agent") ? "Agent" : t("runDetail.local")}
                 </span>
               </button>
             ))}
-            {filteredJobs.length === 0 && <div className="px-3 py-3 text-xs text-[#57606a]">无匹配 Job</div>}
+            {filteredJobs.length === 0 && <div className="px-3 py-3 text-xs text-[#57606a]">{t("runDetail.noMatchingJobs")}</div>}
           </div>
         </aside>
 
@@ -230,7 +230,7 @@ export function BuildDetailPage() {
           {currentJob ? (
             <JobConsole job={currentJob} lines={logs[currentJob.jobKey] ?? []} />
           ) : (
-            <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">选择左侧 Job 查看日志。</div>
+            <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">{t("runDetail.selectJobHint")}</div>
           )}
         </section>
       </div>
@@ -259,12 +259,13 @@ function DagView({
   selected: string | null;
   onSelect: (jobKey: string) => void;
 }) {
+  const { t } = useTranslation();
   const layout = useMemo(() => layoutDag(jobs, runStatus), [jobs, runStatus]);
   if (!layout) return null;
 
   return (
     <div className="flex justify-center overflow-x-auto rounded-md border border-[#d0d7de] bg-white p-4">
-      <svg width={layout.width} height={layout.height + 24} role="img" aria-label="Job 依赖图" style={{ minWidth: layout.width }}>
+      <svg width={layout.width} height={layout.height + 24} role="img" aria-label={t("runDetail.dagAria")} style={{ minWidth: layout.width }}>
         {layout.edges.map((edge) => {
           const highlight = selected === edge.to || selected === edge.from;
           return (
@@ -314,7 +315,7 @@ function DagView({
                 <path d="M -4 0 L 4 0 M 0 -4 L 0 4" stroke={stroke} strokeWidth={1.5} />
               )}
               <text y={28} textAnchor="middle" fontSize={11} fill="#57606a" fontFamily="inherit">
-                {isEnd ? "结束" : "开始"}
+                {isEnd ? t("runDetail.dagEnd") : t("runDetail.dagStart")}
               </text>
             </g>
           );
@@ -372,6 +373,7 @@ function StepSection({
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const { t } = useTranslation();
   const consoleRef = useRef<HTMLDivElement | null>(null);
   const stickToBottom = useRef(true);
 
@@ -401,7 +403,7 @@ function StepSection({
           className="max-h-96 overflow-auto bg-[#0d1117] px-3 py-2 font-mono text-xs leading-5"
         >
           {lines.length === 0 ? (
-            <div className="text-[#7d8590]">（暂无输出 — 等待步骤开始或输出到达）</div>
+            <div className="text-[#7d8590]">{t("runDetail.noOutput")}</div>
           ) : (
             lines.map((line) => (
               <div key={line.line} className="flex gap-3 whitespace-pre-wrap">
@@ -485,6 +487,7 @@ function StatusGlyph({ status, compact = false }: { status: string; compact?: bo
 
 function JobHeader({ job }: { job: JobRun }) {
   const [open, setOpen] = useState(false);
+  const { t } = useTranslation();
   const base = `/api/runs/${job.runId}/logs/${encodeURIComponent(job.jobKey)}/download`;
 
   return (
@@ -500,7 +503,7 @@ function JobHeader({ job }: { job: JobRun }) {
           className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] px-2 py-1 text-xs hover:bg-[#f3f4f6]"
         >
           <Download size={12} />
-          下载日志
+          {t("runDetail.downloadLog")}
         </button>
         {open && (
           <div className="absolute right-0 z-10 mt-1 w-44 overflow-hidden rounded-md border border-[#d0d7de] bg-white shadow-lg">
@@ -509,14 +512,14 @@ function JobHeader({ job }: { job: JobRun }) {
               className="block px-3 py-2 text-xs hover:bg-[#f6f8fa]"
               onClick={() => setOpen(false)}
             >
-              原始日志
+              {t("runDetail.rawLog")}
             </a>
             <a
               href={`${base}?format=timestamped`}
               className="block px-3 py-2 text-xs hover:bg-[#f6f8fa]"
               onClick={() => setOpen(false)}
             >
-              带时间戳日志
+              {t("runDetail.timestampedLog")}
             </a>
           </div>
         )}

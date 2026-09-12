@@ -2,8 +2,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 
 import { router } from "./router";
+import "@/i18n";
 import { MeProvider, useMe } from "./lib/me-context";
 import { UserNamesProvider } from "./lib/user-names";
 import { LoginPage } from "./pages/login";
@@ -20,8 +22,9 @@ const queryClient = new QueryClient({
 
 function AppGate() {
   const { me, loading } = useMe();
+  const { t } = useTranslation();
   if (loading) {
-    return <div className="flex min-h-screen items-center justify-center text-sm text-[#57606a]">加载中…</div>;
+    return <div className="flex min-h-screen items-center justify-center text-sm text-[#57606a]">{t("common.loading")}</div>;
   }
   if (!me) {
     return <LoginPage />;

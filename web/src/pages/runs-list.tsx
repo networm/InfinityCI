@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { RefreshCw } from "lucide-react";
 import type { HubConnection } from "@microsoft/signalr";
+import { useTranslation } from "react-i18next";
 
 import { StatusIcon } from "@/components/status-icon";
 import { api } from "@/lib/api";
@@ -13,6 +14,7 @@ import type { JobRun, Run, RunsPageItem } from "@/lib/types";
 export function RunsListPage() {
   const navigate = useNavigate();
   const resolveName = useResolveUserName();
+  const { t } = useTranslation();
   const [items, setItems] = useState<RunsPageItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -87,27 +89,27 @@ export function RunsListPage() {
           className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-3 py-1.5 text-sm hover:bg-[#f3f4f6]"
         >
           <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-          刷新
+          {t("common.refresh")}
         </button>
       </div>
 
       {loading ? (
-        <div className="text-sm text-[#57606a]">加载中…</div>
+        <div className="text-sm text-[#57606a]">{t("common.loading")}</div>
       ) : items.length === 0 ? (
         <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">
-          还没有运行记录 — 在 Dashboard 里点击任务的 Run 按钮。
+          {t("runs.empty")}
         </div>
       ) : (
         <div className="overflow-hidden rounded-md border border-[#d0d7de] bg-white">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#d0d7de] bg-[#f6f8fa] text-left text-xs text-[#57606a]">
-                <th className="w-10 px-3 py-2">状态</th>
+                <th className="w-10 px-3 py-2">{t("columns.status")}</th>
                 <th className="px-3 py-2">Run</th>
                 <th className="px-3 py-2">Jobs</th>
-                <th className="px-3 py-2">触发人</th>
-                <th className="px-3 py-2">时间</th>
-                <th className="px-3 py-2">耗时</th>
+                <th className="px-3 py-2">{t("columns.triggeredBy")}</th>
+                <th className="px-3 py-2">{t("columns.time")}</th>
+                <th className="px-3 py-2">{t("columns.duration")}</th>
               </tr>
             </thead>
             <tbody>

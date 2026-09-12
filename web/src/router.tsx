@@ -1,4 +1,5 @@
 import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 
 import { AppLayout } from "./layout";
 import { AdminPage } from "./pages/admin";
@@ -10,11 +11,14 @@ import { JobsPage } from "./pages/jobs";
 import { RunsListPage } from "./pages/runs-list";
 import { WorkflowDetailPage } from "./pages/workflow-detail";
 
+function NotFound() {
+  const { t } = useTranslation();
+  return <div className="py-16 text-center text-sm text-[#57606a]">{t("notFound")}</div>;
+}
+
 const rootRoute = createRootRoute({
   component: AppLayout,
-  notFoundComponent: () => (
-    <div className="py-16 text-center text-sm text-[#57606a]">页面不存在。</div>
-  ),
+  notFoundComponent: NotFound,
 });
 
 const indexRoute = createRoute({
