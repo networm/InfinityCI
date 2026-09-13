@@ -89,6 +89,21 @@ const en = {
     deleteBlocked: "Project still has workflows; move or delete them first",
     confirmDelete: 'Delete project "{{name}}"?',
   },
+  queue: {
+    title: "Queue",
+    hint: "Jobs that cannot start yet wait here; the position is the dispatch order (FIFO).",
+    empty: "The queue is empty — every job has started or nothing is pending.",
+    target: "Target",
+    reasonTitle: "Waiting for",
+    waited: "Waited",
+    reason: {
+      local: "Waiting for a free local executor",
+      agentBusy: "Waiting for an agent to become free and pull the job",
+      agentOffline: "No agent online; the job starts when one connects",
+      agentLabelBusy: 'Waiting for an agent labeled "{{label}}" to become free',
+      agentLabelOffline: 'No online agent carries the label "{{label}}"',
+    },
+  },
   jobs: {
     cloneHint: "Configuration lives in a Git repository; clone it read-only:",
     new: "New workflow",

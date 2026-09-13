@@ -244,14 +244,14 @@ public sealed class RunQueueService(
         await foreach (var channelJobRun in _localQueue.ReadAllAsync(stoppingToken))
         {
             // Atomic claim: a conditional UPDATE closes the double-dispatch and
-            // cancel races (0 rows = the job run was finalized/skipped meanwhile).
+            // cancel races (0 rows = the job run was finalized/skipped or already
+            // claimed meanwhile). Queued->Running is the single dispatch claim.
             JobRun? jobRun;
             using (var scope = scopeFactory.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<CiDbContext>();
                 var claimed = await db.JobRuns
-                    .Where(j => j.Id == channelJobRun.Id
-                                && (j.Status == JobRunStatus.Queued || j.Status == JobRunStatus.Running))
+                    .Where(j => j.Id == channelJobRun.Id && j.Status == JobRunStatus.Queued)
                     .ExecuteUpdateAsync(
                         s => s.SetProperty(j => j.Status, JobRunStatus.Running)
                               .SetProperty(j => j.StartedAt, DateTimeOffset.UtcNow),

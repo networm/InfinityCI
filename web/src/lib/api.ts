@@ -5,6 +5,7 @@ import type {
   DashboardItem,
   EnrolledAgent,
   LogLine,
+  QueueItemInfo,
   WorkflowRuntimeState,
   Me,
   ProjectInfo,
@@ -55,6 +56,7 @@ export const api = {
 
   // runs
   runs: (skip = 0, take = 30) => request<RunsPageItem[]>(`/api/runs?skip=${skip}&take=${take}`),
+  queue: () => request<QueueItemInfo[]>("/api/queue"),
   workflowRuns: (name: string, skip = 0, take = 20) =>
     request<{ total: number; items: RunsPageItem[] }>(
       `/api/jobs/${encodeURIComponent(name)}/runs?skip=${skip}&take=${take}`,

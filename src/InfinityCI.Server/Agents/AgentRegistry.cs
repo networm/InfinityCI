@@ -44,6 +44,7 @@ public sealed class AgentRegistry(ILogger<AgentRegistry> logger)
 {
     private readonly ConcurrentDictionary<string, AgentConnection> _agents = new();
     private readonly ConcurrentQueue<PendingJobRun> _pending = new();
+    private readonly ConcurrentDictionary<long, byte> _pendingIds = new();
     private readonly ConcurrentDictionary<long, string> _assignments = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _writeLocks = new();
 
@@ -113,9 +114,28 @@ public sealed class AgentRegistry(ILogger<AgentRegistry> logger)
 
     // -- pending queue (pull dispatch) --
 
-    public void EnqueuePending(PendingJobRun pending) => _pending.Enqueue(pending);
-    public bool TryDequeuePending(out PendingJobRun pending) => _pending.TryDequeue(out pending);
-    public void RequeuePending(PendingJobRun pending) => _pending.Enqueue(pending);
+    /// <summary>True when newly queued; false when this job run is already waiting for an agent.</summary>
+    public bool EnqueuePending(PendingJobRun pending)
+    {
+        if (!_pendingIds.TryAdd(pending.JobRunId, 0))
+            return false;
+        _pending.Enqueue(pending);
+        return true;
+    }
+
+    public bool TryDequeuePending(out PendingJobRun pending)
+    {
+        if (!_pending.TryDequeue(out pending))
+            return false;
+        _pendingIds.TryRemove(pending.JobRunId, out _);
+        return true;
+    }
+
+    public void RequeuePending(PendingJobRun pending)
+    {
+        _pendingIds.TryAdd(pending.JobRunId, 0);
+        _pending.Enqueue(pending);
+    }
 
     // -- capacity & assignment bookkeeping --
 

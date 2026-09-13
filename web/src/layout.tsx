@@ -10,6 +10,7 @@ const tabs = [
   { to: "/", key: "nav.dashboard" },
   { to: "/jobs", key: "nav.jobs" },
   { to: "/projects", key: "nav.projects" },
+  { to: "/queue", key: "nav.queue" },
   { to: "/runs", key: "nav.runs" },
   { to: "/agents", key: "nav.agents" },
 ] as const;

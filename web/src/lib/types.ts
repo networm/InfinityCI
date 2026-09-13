@@ -133,6 +133,18 @@ export interface ProjectInfo {
   description: string | null;
 }
 
+/** A job run waiting in the dispatch queue (local executor or agent pull). */
+export interface QueueItemInfo {
+  jobRunId: number;
+  runId: number;
+  workflowName: string;
+  project: string;
+  jobKey: string;
+  runsOn: string;
+  requiredLabel: string | null;
+  createdAt: string;
+}
+
 export interface UserInfo {
   id: number;
   username: string;

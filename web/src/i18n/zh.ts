@@ -89,6 +89,21 @@ const zh = {
     deleteBlocked: "项目下仍有任务，先移动或删除任务",
     confirmDelete: "删除项目「{{name}}」？",
   },
+  queue: {
+    title: "队列",
+    hint: "暂时无法开始的任务在此排队等待，位置即派发顺序（先进先出）。",
+    empty: "队列为空 — 所有任务都已开始或没有待执行的任务。",
+    target: "运行位置",
+    reasonTitle: "等待原因",
+    waited: "已等待",
+    reason: {
+      local: "等待本地执行器空闲",
+      agentBusy: "等待 Agent 空闲并拉取任务",
+      agentOffline: "没有在线 Agent，等待 Agent 上线后拉取",
+      agentLabelBusy: "等待标签为「{{label}}」的 Agent 空闲并拉取任务",
+      agentLabelOffline: "没有标签为「{{label}}」的在线 Agent",
+    },
+  },
   jobs: {
     cloneHint: "配置存放在 Git 仓库中，可只读克隆：",
     new: "新建任务",

@@ -101,7 +101,9 @@ public sealed class RunAggregator(
             }
         }
 
-        // 2) Dispatch queued job runs whose needs are all satisfied.
+        // 2) Dispatch queued job runs whose needs are all satisfied. Waiting job
+        // runs stay Queued — the queue IS the waiting state, and only a claim
+        // (local worker or agent coordinator) flips them to Running.
         foreach (var jobRun in jobRuns.Where(j => j.Status == JobRunStatus.Queued))
         {
             var allSucceeded = jobRun.Needs.All(need =>
@@ -109,26 +111,23 @@ public sealed class RunAggregator(
             if (!allSucceeded)
                 continue;
 
-            // Mark Queued -> Running before enqueueing so a concurrent pass (or a
-            // duplicate channel message) cannot dispatch the same job run twice.
-            jobRun.Status = JobRunStatus.Running;
-            jobRun.StartedAt = DateTimeOffset.UtcNow;
-            await repo.SaveJobRunTransitionAsync(jobRun);
-            await events.PublishJobRunUpdatedAsync(jobRun);
-
+            bool dispatched;
             if (jobRun.RunsOn.StartsWith("agent", StringComparison.OrdinalIgnoreCase))
             {
                 var requiredLabel = jobRun.RunsOn.StartsWith("agent:", StringComparison.OrdinalIgnoreCase) && jobRun.RunsOn.Length > "agent:".Length
                     ? jobRun.RunsOn["agent:".Length..].Trim()
                     : null;
-                registry.EnqueuePending(new PendingJobRun(jobRun.Id, requiredLabel));
+                dispatched = registry.EnqueuePending(new PendingJobRun(jobRun.Id, requiredLabel));
+                if (dispatched)
+                    logger.LogInformation("Dependencies met for job run {JobRunId} ({Job}); queued for agent dispatch", jobRun.Id, jobRun.JobKey);
             }
             else
             {
-                localQueue.TryWrite(jobRun);
+                dispatched = localQueue.TryWrite(jobRun);
+                if (dispatched)
+                    logger.LogInformation("Dependencies met for job run {JobRunId} ({Job}); queued locally", jobRun.Id, jobRun.JobKey);
             }
-            changed = true;
-            logger.LogInformation("Dependencies met for job run {JobRunId} ({Job}); dispatched", jobRun.Id, jobRun.JobKey);
+            changed |= dispatched;
         }
 
         return changed;

@@ -19,6 +19,7 @@ namespace InfinityCI.Server.Api;
 
 public sealed record LogPage(long RunId, string JobKey, long NextLine, IReadOnlyList<LogLine> Lines);
 public sealed record RunsPageItem(Run Run, IReadOnlyList<JobRun> Jobs);
+public sealed record QueueItem(long JobRunId, long RunId, string WorkflowName, string Project, string JobKey, string RunsOn, string? RequiredLabel, DateTimeOffset CreatedAt);
 public record LoginRequest(string Username, string Password);
 public record CreateUserRequest(string Username, string Password, string Role, long[] ProjectIds, string? DisplayName);
 public record UpdateUserRequest(string? Password, string? Role, long[]? ProjectIds, string? DisplayName);
@@ -462,6 +463,34 @@ public static class CiApi
 
         app.MapPost("/api/runs/{id:long}/cancel", async (long id, RunQueueService queue) =>
             Results.Ok(new { cancelled = await queue.TryCancelRunAsync(id) })).RequireAuthorization();
+
+        // Job runs waiting to start (local executor busy, or no agent has pulled
+        // them yet) — FIFO order, filtered by project visibility.
+        app.MapGet("/api/queue", async (CiDbContext db, ClaimsPrincipal user) =>
+        {
+            var visible = await VisibleProjectsAsync(user, db);
+            var queued = await db.JobRuns.AsNoTracking()
+                .Where(j => j.Status == JobRunStatus.Queued)
+                .OrderBy(j => j.Id)
+                .ToListAsync();
+            var runIds = queued.Select(j => j.RunId).Distinct().ToArray();
+            var runs = await db.Runs.AsNoTracking()
+                .Where(r => runIds.Contains(r.Id))
+                .ToDictionaryAsync(r => r.Id);
+            var items = queued
+                .Select(j => new QueueItem(
+                    j.Id,
+                    j.RunId,
+                    runs.GetValueOrDefault(j.RunId)?.WorkflowName ?? "?",
+                    runs.GetValueOrDefault(j.RunId)?.Project ?? "",
+                    j.JobKey,
+                    j.RunsOn,
+                    RemoteBuildCoordinator.PendingFromRunsOn(j.RunsOn, j.Id).RequiredLabel,
+                    j.CreatedAt))
+                .Where(i => visible is null || visible.Contains(i.Project))
+                .ToList();
+            return Results.Ok(items);
+        }).RequireAuthorization();
 
         app.MapPost("/api/runs/{id:long}/retry", async (long id, RunQueueService queue) =>
         {

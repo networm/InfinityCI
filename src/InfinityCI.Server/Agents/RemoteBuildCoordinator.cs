@@ -29,16 +29,25 @@ public sealed class RemoteBuildCoordinator(
     {
         while (registry.TryDequeuePending(out var pending))
         {
+            // Label match is checked before any state change: a mismatched agent
+            // must leave the job run Queued for another agent to pick up.
+            if (pending.RequiredLabel is { } label
+                && !agent.Labels.Contains(label, StringComparer.OrdinalIgnoreCase))
+            {
+                // This agent does not match; another one may. Hand it back.
+                registry.RequeuePending(pending);
+                return false;
+            }
+
             using var scope = scopeFactory.CreateScope();
             var repo = scope.ServiceProvider.GetRequiredService<RunRepository>();
             var db = scope.ServiceProvider.GetRequiredService<CiDbContext>();
 
-            // The aggregator marks agent dispatches Running before enqueueing
-            // (double-dispatch guard), so claim atomically like the local worker:
-            // a conditional UPDATE that also closes cancel/finalize races.
+            // The job run stays Queued while waiting in the pending queue, so the
+            // claim is a strict atomic transition — a conditional UPDATE that
+            // also closes cancel/finalize and duplicate-dispatch races.
             var claimed = await db.JobRuns
-                .Where(j => j.Id == pending.JobRunId
-                            && (j.Status == JobRunStatus.Queued || j.Status == JobRunStatus.Running))
+                .Where(j => j.Id == pending.JobRunId && j.Status == JobRunStatus.Queued)
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(j => j.Status, JobRunStatus.Running)
                     .SetProperty(j => j.StartedAt, DateTimeOffset.UtcNow));
@@ -48,14 +57,6 @@ public sealed class RemoteBuildCoordinator(
             var jobRun = await repo.GetJobRunAsync(pending.JobRunId);
             if (jobRun is null)
                 continue;
-
-            if (pending.RequiredLabel is { } label
-                && !agent.Labels.Contains(label, StringComparer.OrdinalIgnoreCase))
-            {
-                // This agent does not match; another one may. Hand it back.
-                registry.RequeuePending(pending);
-                return false;
-            }
 
             var run = await repo.GetRunAsync(jobRun.RunId);
             var rawYaml = run is null ? null : workflowStore.TryGetRawYaml(run.WorkflowName);

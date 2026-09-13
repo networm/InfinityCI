@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 using InfinityCI.Core;
 
@@ -6,7 +7,9 @@ namespace InfinityCI.Server.Runs;
 /// <summary>
 /// Shared queue of job runs waiting for a local executor slot. A standalone
 /// singleton so both the trigger path and the needs-gating aggregator can
-/// dispatch into it without circular dependencies.
+/// dispatch into it without circular dependencies. Duplicate writes for a job
+/// run that is already waiting are dropped — waiting jobs keep Status=Queued,
+/// so repeated needs-evaluations must not stack the same dispatch.
 /// </summary>
 public sealed class LocalJobRunQueue
 {
@@ -15,9 +18,25 @@ public sealed class LocalJobRunQueue
         SingleReader = false,
         SingleWriter = false,
     });
+    private readonly ConcurrentDictionary<long, byte> _queuedIds = new();
 
-    public void TryWrite(JobRun jobRun) => _channel.Writer.TryWrite(jobRun);
+    /// <summary>True when newly queued; false when this job run is already waiting.</summary>
+    public bool TryWrite(JobRun jobRun)
+    {
+        if (!_queuedIds.TryAdd(jobRun.Id, 0))
+            return false;
+        if (_channel.Writer.TryWrite(jobRun))
+            return true;
+        _queuedIds.TryRemove(jobRun.Id, out _);
+        return false;
+    }
 
-    public IAsyncEnumerable<JobRun> ReadAllAsync(CancellationToken cancellationToken) =>
-        _channel.Reader.ReadAllAsync(cancellationToken);
+    public async IAsyncEnumerable<JobRun> ReadAllAsync(System.Threading.CancellationToken cancellationToken)
+    {
+        await foreach (var jobRun in _channel.Reader.ReadAllAsync(cancellationToken))
+        {
+            _queuedIds.TryRemove(jobRun.Id, out _);
+            yield return jobRun;
+        }
+    }
 }

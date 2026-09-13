@@ -9,6 +9,7 @@ import { DashboardPage } from "./pages/runs";
 import { JobEditorPage } from "./pages/job-editor";
 import { JobsPage } from "./pages/jobs";
 import { ProjectsPage } from "./pages/projects";
+import { QueuePage } from "./pages/queue";
 import { RunsListPage } from "./pages/runs-list";
 import { WorkflowDetailPage } from "./pages/workflow-detail";
 
@@ -52,6 +53,12 @@ const projectsRoute = createRoute({
   component: ProjectsPage,
 });
 
+const queueRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/queue",
+  component: QueuePage,
+});
+
 const newJobRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/jobs/new",
@@ -86,6 +93,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   runRoute,
   runsListRoute,
+  queueRoute,
   jobsRoute,
   projectsRoute,
   newJobRoute,
