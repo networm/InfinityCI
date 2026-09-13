@@ -176,10 +176,12 @@ public static class CiApi
             return Results.Ok(project);
         }).RequireAuthorization("Admins");
 
-        app.MapDelete("/api/projects/{id:long}", async (long id, CiDbContext db) =>
+        app.MapDelete("/api/projects/{id:long}", async (long id, WorkflowStore store, CiDbContext db) =>
         {
             var project = await db.Projects.Include(p => p.Users).FirstOrDefaultAsync(p => p.Id == id);
             if (project is null) return Results.NotFound();
+            if (store.Workflows.Any(w => w.Project == project.Name))
+                return Results.Conflict(new { message = $"Project '{project.Name}' still contains workflows; move or delete them first." });
             db.Projects.Remove(project);
             await db.SaveChangesAsync();
             return Results.Ok();
@@ -302,6 +304,8 @@ public static class CiApi
                 var workflow = WorkflowYaml.Parse(request.Yaml);
                 if (store.TryGet(workflow.Name) is not null)
                     return Results.Conflict(new { message = $"Workflow '{workflow.Name}' already exists." });
+                if (!await ProjectExistsAsync(db, workflow.Project))
+                    return Results.BadRequest(new { message = $"Project '{workflow.Project}' does not exist. Create it on the Projects page first." });
                 store.Save(workflow.Name, request.Yaml, await DisplayNameOfAsync(db, user));
                 return Results.Ok(new { name = workflow.Name });
             }
@@ -315,6 +319,9 @@ public static class CiApi
         {
             try
             {
+                var workflow = WorkflowYaml.Parse(request.Yaml);
+                if (!await ProjectExistsAsync(db, workflow.Project))
+                    return Results.BadRequest(new { message = $"Project '{workflow.Project}' does not exist. Create it on the Projects page first." });
                 store.Save(name, request.Yaml, await DisplayNameOfAsync(db, user));
                 return Results.Ok(new { name });
             }
@@ -820,4 +827,8 @@ public static class CiApi
 
     private static bool IsAdmin(ClaimsPrincipal user) =>
         user.IsInRole(AppRoles.SuperAdmin) || user.IsInRole(AppRoles.Admin);
+
+    /// <summary>Every workflow must live in a managed project; the name is matched case-insensitively.</summary>
+    private static async Task<bool> ProjectExistsAsync(CiDbContext db, string projectName) =>
+        await db.Projects.AnyAsync(p => p.Name == projectName);
 }

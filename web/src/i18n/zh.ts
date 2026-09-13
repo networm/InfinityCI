@@ -16,6 +16,8 @@ const zh = {
   nav: {
     dashboard: "Dashboard",
     jobs: "任务",
+    projects: "项目",
+    queue: "队列",
     runs: "Runs",
     agents: "Agents",
     admin: "管理",
@@ -71,7 +73,6 @@ const zh = {
     empty: "还没有任务。",
     createFirst: "创建第一个任务 →",
     favorites: "收藏任务",
-    all: "全部任务",
     neverRun: "从未运行",
     unfavorite: "取消收藏",
     favorite: "收藏",
@@ -79,6 +80,14 @@ const zh = {
   },
   runs: {
     empty: "还没有运行记录 — 在 Dashboard 里点击任务的 Run 按钮。",
+  },
+  projects: {
+    title: "项目",
+    hint: "每个任务必须属于一个项目；项目在管理页创建，用于组织任务与控制可见性。",
+    description: "描述",
+    noWorkflows: "暂无任务",
+    deleteBlocked: "项目下仍有任务，先移动或删除任务",
+    confirmDelete: "删除项目「{{name}}」？",
   },
   jobs: {
     cloneHint: "配置存放在 Git 仓库中，可只读克隆：",

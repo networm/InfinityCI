@@ -16,6 +16,8 @@ const en = {
   nav: {
     dashboard: "Dashboard",
     jobs: "Jobs",
+    projects: "Projects",
+    queue: "Queue",
     runs: "Runs",
     agents: "Agents",
     admin: "Admin",
@@ -71,7 +73,6 @@ const en = {
     empty: "No workflows yet.",
     createFirst: "Create your first workflow →",
     favorites: "Favorites",
-    all: "All workflows",
     neverRun: "Never run",
     unfavorite: "Unfavorite",
     favorite: "Favorite",
@@ -79,6 +80,14 @@ const en = {
   },
   runs: {
     empty: "No runs yet — click a workflow's Run button on the Dashboard.",
+  },
+  projects: {
+    title: "Projects",
+    hint: "Every workflow belongs to exactly one project; projects group workflows and control visibility.",
+    description: "Description",
+    noWorkflows: "No workflows",
+    deleteBlocked: "Project still has workflows; move or delete them first",
+    confirmDelete: 'Delete project "{{name}}"?',
   },
   jobs: {
     cloneHint: "Configuration lives in a Git repository; clone it read-only:",

@@ -107,6 +107,14 @@ export function JobEditorPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(isEdit || Boolean(copyFrom));
   const [saving, setSaving] = useState(false);
+  const [projectOptions, setProjectOptions] = useState<string[]>(["Default"]);
+
+  useEffect(() => {
+    api
+      .projects()
+      .then((projects) => setProjectOptions(projects.map((p) => p.name)))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const source = isEdit ? editName : copyFrom;
@@ -217,11 +225,20 @@ export function JobEditorPage() {
             </label>
             <label className="text-sm">
               <span className="mb-1 block font-medium">{t("editor.project")}</span>
-              <input
-                value={workflow.project}
+              <select
+                value={projectOptions.includes(workflow.project) ? workflow.project : ""}
                 onChange={(e) => setWorkflow({ ...workflow, project: e.target.value })}
                 className="w-full rounded-md border border-line px-2.5 py-1.5 text-sm outline-none focus:border-link"
-              />
+              >
+                {!projectOptions.includes(workflow.project) && workflow.project && (
+                  <option value="">{workflow.project}</option>
+                )}
+                {projectOptions.map((project) => (
+                  <option key={project} value={project}>
+                    {project}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
 

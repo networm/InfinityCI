@@ -115,6 +115,17 @@ export function TaskDashboard() {
 
   const favorites = items.filter((i) => i.isFavorite);
   const others = items.filter((i) => !i.isFavorite);
+  // Group the non-favorite rows by project (alphabetical) — the dashboard is
+  // the project-oriented overview of all workflows.
+  const projectGroups = (() => {
+    const byProject = new Map<string, DashboardItem[]>();
+    for (const item of others) {
+      const list = byProject.get(item.project) ?? [];
+      list.push(item);
+      byProject.set(item.project, list);
+    }
+    return [...byProject.entries()].sort(([a], [b]) => a.localeCompare(b));
+  })();
 
   return (
     <div className="space-y-6">
@@ -160,15 +171,17 @@ export function TaskDashboard() {
             </section>
           )}
 
-          <section>
-            {favorites.length > 0 && <h2 className="mb-2 text-sm font-medium text-fg-muted">{t("dashboard.all")}</h2>}
-            <div className="space-y-2">
-              {others.map((item) => (
-                <WorkflowRow key={item.name} item={item} onTrigger={trigger} onToggleFavorite={toggleFavorite}
-                  onOpen={(target) => navigate({ to: target })} />
-              ))}
-            </div>
-          </section>
+          {projectGroups.map(([project, groupItems]) => (
+            <section key={project}>
+              <h2 className="mb-2 text-sm font-medium text-fg-muted">{project}</h2>
+              <div className="space-y-2">
+                {groupItems.map((item) => (
+                  <WorkflowRow key={item.name} item={item} onTrigger={trigger} onToggleFavorite={toggleFavorite}
+                    onOpen={(target) => navigate({ to: target })} />
+                ))}
+              </div>
+            </section>
+          ))}
         </>
       )}
 

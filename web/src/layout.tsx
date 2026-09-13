@@ -9,6 +9,7 @@ import { useResolveUserName } from "@/lib/user-names";
 const tabs = [
   { to: "/", key: "nav.dashboard" },
   { to: "/jobs", key: "nav.jobs" },
+  { to: "/projects", key: "nav.projects" },
   { to: "/runs", key: "nav.runs" },
   { to: "/agents", key: "nav.agents" },
 ] as const;
