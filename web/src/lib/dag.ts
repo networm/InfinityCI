@@ -40,15 +40,14 @@ const SPINE_Y = MARGIN + DAG_RADIUS;
 /**
  * Jenkins Blue Ocean-style layered layout: start, the primary job of each
  * layer and the end node sit on one horizontal line; parallel siblings hang
- * below the line in BFS order. Fan-out branches share the source's exit point;
- * converging branches merge at a shared point before a single line enters the
- * target. Cycles are impossible (the server rejects them at parse time).
+ * below the line in BFS order. Jobs without needs are roots: a workflow that
+ * declares no needs at all renders every job as a parallel branch. An empty
+ * job list still yields the bare start→end skeleton. Fan-out branches share
+ * the source's exit point; converging branches merge at a shared point before
+ * a single line enters the target. Cycles are impossible (the server rejects
+ * them at parse time).
  */
-export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLayout | null {
-  if (jobRuns.length === 0) return null;
-  const hasNeeds = jobRuns.some((j) => j.needs.length > 0);
-  if (!hasNeeds) return null;
-
+export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLayout {
   const byKey = new Map(jobRuns.map((j) => [j.jobKey, j]));
   const keys = jobRuns.map((j) => j.jobKey);
 
@@ -118,7 +117,8 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
     });
   }
 
-  const maxJobLayer = Math.max(...byLayer.keys());
+  // 0 floor keeps an empty job list renderable (bare start→end skeleton).
+  const maxJobLayer = Math.max(0, ...byLayer.keys());
   const end: DagNode = {
     kind: "end",
     jobKey: null,
@@ -170,6 +170,7 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
   for (const terminal of keys.filter((key) => !keys.some((other) => byKey.get(other)!.needs.includes(key)))) {
     addIncoming(end, jobNodeByKey.get(terminal)!);
   }
+  if (jobRuns.length === 0) addIncoming(end, start);
 
   const edges: DagEdge[] = [];
   for (const [targetKey, sources] of incoming) {

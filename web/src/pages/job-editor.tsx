@@ -81,7 +81,7 @@ function formRepresentable(text: string): boolean {
   const jobs = Object.values((doc.jobs as Record<string, unknown>) ?? {});
   return jobs.every((job) => {
     if (!job || typeof job !== "object" || hasEnv(job)) return false;
-    return ((job.steps as unknown[] | undefined) ?? []).every((step) => !hasEnv(step));
+    return (((job as { steps?: unknown[] }).steps) ?? []).every((step) => !hasEnv(step));
   });
 }
 

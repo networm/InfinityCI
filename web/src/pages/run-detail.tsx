@@ -186,7 +186,7 @@ export function BuildDetailPage() {
         <div className="rounded-md border border-[#ffc1bc] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">{error}</div>
       )}
 
-      {/* Job dependency DAG (GitHub style) — rendered when the workflow uses needs */}
+      {/* Job dependency DAG (GitHub style) — always rendered, needs or not */}
       <DagView
         jobs={jobs}
         runStatus={run?.status ?? null}
@@ -261,7 +261,6 @@ function DagView({
 }) {
   const { t } = useTranslation();
   const layout = useMemo(() => layoutDag(jobs, runStatus), [jobs, runStatus]);
-  if (!layout) return null;
 
   return (
     <div className="flex justify-center overflow-x-auto rounded-md border border-[#d0d7de] bg-white p-4">
