@@ -51,9 +51,9 @@ export function JobsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">{t("nav.jobs")}</h1>
-          <p className="mt-0.5 text-xs text-[#57606a]">
+          <p className="mt-0.5 text-xs text-fg-muted">
             {t("jobs.cloneHint")}{" "}
-            <code className="rounded bg-[#eff2f5] px-1.5 py-0.5 font-mono text-xs">
+            <code className="rounded bg-chip px-1.5 py-0.5 font-mono text-xs">
               git clone http://用户:密码@host:5000/git/jobs
             </code>
           </p>
@@ -61,7 +61,7 @@ export function JobsPage() {
         {isAdmin && (
           <Link
             to="/jobs/new"
-            className="flex items-center gap-1.5 rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b]"
+            className="flex items-center gap-1.5 rounded-md bg-success-btn px-3 py-1.5 text-sm font-medium text-white hover:bg-success-btn-hover"
           >
             <Plus size={14} />
             {t("jobs.new")}
@@ -70,21 +70,21 @@ export function JobsPage() {
       </div>
 
       {message && (
-        <div className="rounded-md border border-[#ffc1bc] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">{message}</div>
+        <div className="rounded-md border border-danger-line bg-danger-subtle px-3 py-2 text-sm text-danger">{message}</div>
       )}
 
       {loading ? (
-        <div className="text-sm text-[#57606a]">{t("common.loading")}</div>
+        <div className="text-sm text-fg-muted">{t("common.loading")}</div>
       ) : workflows.length === 0 ? (
-        <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">
+        <div className="rounded-md border border-line bg-canvas p-6 text-sm text-fg-muted">
           {t("jobs.empty")}
           {isAdmin ? t("jobs.emptyAdminHint") : t("jobs.emptyUserHint")}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-md border border-[#d0d7de] bg-white">
+        <div className="overflow-hidden rounded-md border border-line bg-canvas">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#d0d7de] bg-[#f6f8fa] text-left text-xs text-[#57606a]">
+              <tr className="border-b border-line bg-canvas-subtle text-left text-xs text-fg-muted">
                 <th className="px-4 py-2">{t("columns.name")}</th>
                 <th className="px-4 py-2">{t("columns.project")}</th>
                 <th className="px-4 py-2">Jobs</th>
@@ -93,17 +93,17 @@ export function JobsPage() {
             </thead>
             <tbody>
               {workflows.map((workflow) => (
-                <tr key={workflow.name} className="border-b border-[#d8dee4] last:border-0 hover:bg-[#f6f8fa]">
+                <tr key={workflow.name} className="border-b border-line-muted last:border-0 hover:bg-canvas-subtle">
                   <td className="px-4 py-2.5 font-medium">
-                    <Link to="/jobs/$name" params={{ name: workflow.name }} className="hover:text-[#0969da] hover:underline">
+                    <Link to="/jobs/$name" params={{ name: workflow.name }} className="hover:text-link hover:underline">
                       {workflow.name}
                     </Link>
                   </td>
-                  <td className="px-4 py-2.5 text-[#57606a]">{workflow.project}</td>
-                  <td className="px-4 py-2.5 text-[#57606a]">
+                  <td className="px-4 py-2.5 text-fg-muted">{workflow.project}</td>
+                  <td className="px-4 py-2.5 text-fg-muted">
                     <div className="flex flex-wrap gap-1.5">
                       {workflow.jobs.map((job) => (
-                        <span key={job.key} className="rounded bg-[#eaeef2] px-1.5 py-0.5 text-xs">
+                        <span key={job.key} className="rounded bg-chip px-1.5 py-0.5 text-xs">
                           {job.key}
                           {job.needs.length > 0 && ` ← ${job.needs.join(",")}`}
                         </span>
@@ -115,7 +115,7 @@ export function JobsPage() {
                       <button
                         type="button"
                         onClick={() => void trigger(workflow.name)}
-                        className="flex items-center gap-1 rounded-md bg-[#2da44e] px-2 py-1 text-xs text-white hover:bg-[#2c974b]"
+                        className="flex items-center gap-1 rounded-md bg-success-btn px-2 py-1 text-xs text-white hover:bg-success-btn-hover"
                       >
                         <Play size={12} />
                         Run
@@ -123,7 +123,7 @@ export function JobsPage() {
                       <button
                         type="button"
                         onClick={() => setHistoryFor(workflow.name)}
-                        className="flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs hover:bg-[#f3f4f6]"
+                        className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs hover:bg-hover"
                       >
                         <History size={12} />
                         {t("common.history")}
@@ -133,7 +133,7 @@ export function JobsPage() {
                           <Link
                             to="/jobs/$name/edit"
                             params={{ name: workflow.name }}
-                            className="flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs hover:bg-[#f3f4f6]"
+                            className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs hover:bg-hover"
                           >
                             <Pencil size={12} />
                             {t("common.edit")}
@@ -141,7 +141,7 @@ export function JobsPage() {
                           <Link
                             to="/jobs/new"
                             search={{ from: workflow.name }}
-                            className="flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs hover:bg-[#f3f4f6]"
+                            className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs hover:bg-hover"
                           >
                             <Copy size={12} />
                             {t("common.copy")}
@@ -149,7 +149,7 @@ export function JobsPage() {
                           <button
                             type="button"
                             onClick={() => void remove(workflow.name)}
-                            className="flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs text-[#cf222e] hover:bg-[#ffebe9]"
+                            className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs text-danger hover:bg-danger-subtle"
                           >
                             <Trash2 size={12} />
                             {t("common.delete")}

@@ -159,25 +159,25 @@ export function JobEditorPage() {
     }
   };
 
-  if (loading) return <div className="text-sm text-[#57606a]">{t("common.loading")}</div>;
+  if (loading) return <div className="text-sm text-fg-muted">{t("common.loading")}</div>;
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">{isEdit ? t("editor.editTitle", { name: editName }) : t("editor.newTitle")}</h1>
         <div className="flex items-center gap-2">
-          <div className="flex overflow-hidden rounded-md border border-[#d0d7de] text-xs">
+          <div className="flex overflow-hidden rounded-md border border-line text-xs">
             <button
               type="button"
               onClick={() => mode === "yaml" && switchToForm()}
-              className={"px-3 py-1.5 " + (mode === "form" ? "bg-[#eaeef2] font-medium" : "bg-white hover:bg-[#f6f8fa]")}
+              className={"px-3 py-1.5 " + (mode === "form" ? "bg-chip font-medium" : "bg-canvas hover:bg-canvas-subtle")}
             >
               {t("editor.form")}
             </button>
             <button
               type="button"
               onClick={() => mode === "form" && switchToYaml()}
-              className={"px-3 py-1.5 " + (mode === "yaml" ? "bg-[#eaeef2] font-medium" : "bg-white hover:bg-[#f6f8fa]")}
+              className={"px-3 py-1.5 " + (mode === "yaml" ? "bg-chip font-medium" : "bg-canvas hover:bg-canvas-subtle")}
             >
               YAML
             </button>
@@ -186,7 +186,7 @@ export function JobEditorPage() {
             type="button"
             onClick={() => void save()}
             disabled={saving}
-            className="rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
+            className="rounded-md bg-success-btn px-3 py-1.5 text-sm font-medium text-white hover:bg-success-btn-hover disabled:opacity-50"
           >
             {saving ? t("common.saving") : t("common.save")}
           </button>
@@ -194,25 +194,25 @@ export function JobEditorPage() {
       </div>
 
       {copyFrom && (
-        <div className="rounded-md border border-[#a5b8fc] bg-[#ddf4ff] px-3 py-2 text-sm text-[#0550ae]">
+        <div className="rounded-md border border-link-line bg-link-subtle px-3 py-2 text-sm text-link-fg">
           {t("editor.copiedBanner", { name: copyFrom })}
         </div>
       )}
 
       {error && (
-        <div className="rounded-md border border-[#ffc1bc] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">{error}</div>
+        <div className="rounded-md border border-danger-line bg-danger-subtle px-3 py-2 text-sm text-danger">{error}</div>
       )}
 
       {mode === "form" ? (
         <div className="space-y-4">
-          <div className="grid gap-3 rounded-md border border-[#d0d7de] bg-white p-4 sm:grid-cols-2">
+          <div className="grid gap-3 rounded-md border border-line bg-canvas p-4 sm:grid-cols-2">
             <label className="text-sm">
               <span className="mb-1 block font-medium">{t("editor.name")}</span>
               <input
                 value={workflow.name}
                 disabled={isEdit}
                 onChange={(e) => setWorkflow({ ...workflow, name: e.target.value })}
-                className="w-full rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da] disabled:bg-[#f6f8fa]"
+                className="w-full rounded-md border border-line px-2.5 py-1.5 text-sm outline-none focus:border-link disabled:bg-canvas-subtle"
               />
             </label>
             <label className="text-sm">
@@ -220,18 +220,18 @@ export function JobEditorPage() {
               <input
                 value={workflow.project}
                 onChange={(e) => setWorkflow({ ...workflow, project: e.target.value })}
-                className="w-full rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da]"
+                className="w-full rounded-md border border-line px-2.5 py-1.5 text-sm outline-none focus:border-link"
               />
             </label>
           </div>
 
-          <div className="rounded-md border border-[#d0d7de] bg-white p-4">
+          <div className="rounded-md border border-line bg-canvas p-4">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm font-medium">{t("editor.scm")}</span>
               <button
                 type="button"
                 onClick={() => setWorkflow({ ...workflow, scm: workflow.scm ? null : { url: "", branch: "", ref: "", credentials: "" } })}
-                className="text-xs text-[#0969da] hover:underline"
+                className="text-xs text-link hover:underline"
               >
                 {workflow.scm ? t("editor.remove") : t("editor.add")}
               </button>
@@ -239,36 +239,36 @@ export function JobEditorPage() {
             {workflow.scm && (
               <div className="grid gap-2 sm:grid-cols-4">
                 <label className="text-xs sm:col-span-2">
-                  <span className="mb-1 block font-medium text-[#57606a]">{t("editor.scmUrl")}</span>
+                  <span className="mb-1 block font-medium text-fg-muted">{t("editor.scmUrl")}</span>
                   <input
                     value={workflow.scm.url}
                     onChange={(e) => setWorkflow({ ...workflow, scm: { ...workflow.scm!, url: e.target.value } })}
                     placeholder={t("editor.scmUrlPlaceholder")}
-                    className="w-full rounded-md border border-[#d0d7de] px-2 py-1 font-mono text-xs outline-none focus:border-[#0969da]"
+                    className="w-full rounded-md border border-line px-2 py-1 font-mono text-xs outline-none focus:border-link"
                   />
                 </label>
                 <label className="text-xs">
-                  <span className="mb-1 block font-medium text-[#57606a]">{t("editor.scmBranch")}</span>
+                  <span className="mb-1 block font-medium text-fg-muted">{t("editor.scmBranch")}</span>
                   <input
                     value={workflow.scm.branch}
                     onChange={(e) => setWorkflow({ ...workflow, scm: { ...workflow.scm!, branch: e.target.value } })}
-                    className="w-full rounded-md border border-[#d0d7de] px-2 py-1 text-xs outline-none focus:border-[#0969da]"
+                    className="w-full rounded-md border border-line px-2 py-1 text-xs outline-none focus:border-link"
                   />
                 </label>
                 <label className="text-xs">
-                  <span className="mb-1 block font-medium text-[#57606a]">{t("editor.scmRef")}</span>
+                  <span className="mb-1 block font-medium text-fg-muted">{t("editor.scmRef")}</span>
                   <input
                     value={workflow.scm.ref}
                     onChange={(e) => setWorkflow({ ...workflow, scm: { ...workflow.scm!, ref: e.target.value } })}
-                    className="w-full rounded-md border border-[#d0d7de] px-2 py-1 text-xs outline-none focus:border-[#0969da]"
+                    className="w-full rounded-md border border-line px-2 py-1 text-xs outline-none focus:border-link"
                   />
                 </label>
                 <label className="text-xs sm:col-span-4">
-                  <span className="mb-1 block font-medium text-[#57606a]">{t("editor.scmCredentials")}</span>
+                  <span className="mb-1 block font-medium text-fg-muted">{t("editor.scmCredentials")}</span>
                   <input
                     value={workflow.scm.credentials}
                     onChange={(e) => setWorkflow({ ...workflow, scm: { ...workflow.scm!, credentials: e.target.value } })}
-                    className="w-full rounded-md border border-[#d0d7de] px-2 py-1 text-xs outline-none focus:border-[#0969da]"
+                    className="w-full rounded-md border border-line px-2 py-1 text-xs outline-none focus:border-link"
                   />
                 </label>
               </div>
@@ -276,10 +276,10 @@ export function JobEditorPage() {
           </div>
 
           {workflow.jobs.map((job, jobIndex) => (
-            <div key={jobIndex} className="rounded-md border border-[#d0d7de] bg-white p-4">
+            <div key={jobIndex} className="rounded-md border border-line bg-canvas p-4">
               <div className="mb-3 flex items-center gap-2">
                 <label className="text-sm">
-                  <span className="mr-2 text-xs font-medium text-[#57606a]">{t("editor.jobKey")}</span>
+                  <span className="mr-2 text-xs font-medium text-fg-muted">{t("editor.jobKey")}</span>
                   <input
                     value={job.key}
                     onChange={(e) => {
@@ -287,11 +287,11 @@ export function JobEditorPage() {
                       jobs[jobIndex] = { ...job, key: e.target.value };
                       setWorkflow({ ...workflow, jobs });
                     }}
-                    className="rounded-md border border-[#d0d7de] px-2 py-1 font-mono text-sm outline-none focus:border-[#0969da]"
+                    className="rounded-md border border-line px-2 py-1 font-mono text-sm outline-none focus:border-link"
                   />
                 </label>
                 <label className="text-sm">
-                  <span className="mr-2 text-xs font-medium text-[#57606a]">{t("editor.runsOn")}</span>
+                  <span className="mr-2 text-xs font-medium text-fg-muted">{t("editor.runsOn")}</span>
                   <select
                     value={job.runsOn.startsWith("agent") ? "agent" : "local"}
                     onChange={(e) => {
@@ -299,7 +299,7 @@ export function JobEditorPage() {
                       jobs[jobIndex] = { ...job, runsOn: e.target.value };
                       setWorkflow({ ...workflow, jobs });
                     }}
-                    className="rounded-md border border-[#d0d7de] px-2 py-1 text-sm outline-none focus:border-[#0969da]"
+                    className="rounded-md border border-line px-2 py-1 text-sm outline-none focus:border-link"
                   >
                     <option value="local">{t("editor.runsOnLocal")}</option>
                     <option value="agent">{t("editor.runsOnAgent")}</option>
@@ -309,7 +309,7 @@ export function JobEditorPage() {
                   <button
                     type="button"
                     onClick={() => setWorkflow({ ...workflow, jobs: workflow.jobs.filter((_, i) => i !== jobIndex) })}
-                    className="ml-auto flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs text-[#cf222e] hover:bg-[#ffebe9]"
+                    className="ml-auto flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs text-danger hover:bg-danger-subtle"
                   >
                     <Trash2 size={12} />
                     {t("editor.deleteJob")}
@@ -319,7 +319,7 @@ export function JobEditorPage() {
 
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-xs text-[#57606a]">
+                  <tr className="text-left text-xs text-fg-muted">
                     <th className="w-48 pb-1">{t("editor.stepName")}</th>
                     <th className="pb-1">{t("editor.command")}</th>
                     <th className="w-28 pb-1">{t("editor.shell")}</th>
@@ -329,7 +329,7 @@ export function JobEditorPage() {
                 </thead>
                 <tbody>
                   {job.steps.map((step, stepIndex) => (
-                    <tr key={stepIndex} className="border-t border-[#eaeef2]">
+                    <tr key={stepIndex} className="border-t border-line-muted">
                       <td className="py-1.5 pr-2">
                         <input
                           value={step.name}
@@ -338,7 +338,7 @@ export function JobEditorPage() {
                             steps[stepIndex] = { ...step, name: e.target.value };
                             updateJobAt(workflow, setWorkflow, jobIndex, { ...job, steps });
                           }}
-                          className="w-full rounded border border-[#d0d7de] px-2 py-1 outline-none focus:border-[#0969da]"
+                          className="w-full rounded border border-line px-2 py-1 outline-none focus:border-link"
                         />
                       </td>
                       <td className="py-1.5 pr-2">
@@ -349,7 +349,7 @@ export function JobEditorPage() {
                             steps[stepIndex] = { ...step, command: e.target.value };
                             updateJobAt(workflow, setWorkflow, jobIndex, { ...job, steps });
                           }}
-                          className="w-full rounded border border-[#d0d7de] px-2 py-1 font-mono text-xs outline-none focus:border-[#0969da]"
+                          className="w-full rounded border border-line px-2 py-1 font-mono text-xs outline-none focus:border-link"
                         />
                       </td>
                       <td className="py-1.5 pr-2">
@@ -361,7 +361,7 @@ export function JobEditorPage() {
                             steps[stepIndex] = { ...step, shell: e.target.value };
                             updateJobAt(workflow, setWorkflow, jobIndex, { ...job, steps });
                           }}
-                          className="w-full rounded border border-[#d0d7de] px-2 py-1 outline-none focus:border-[#0969da]"
+                          className="w-full rounded border border-line px-2 py-1 outline-none focus:border-link"
                         />
                       </td>
                       <td className="py-1.5 pr-2 text-center">
@@ -383,7 +383,7 @@ export function JobEditorPage() {
                               const steps = job.steps.filter((_, i) => i !== stepIndex);
                               updateJobAt(workflow, setWorkflow, jobIndex, { ...job, steps });
                             }}
-                            className="text-[#cf222e] hover:opacity-70"
+                            className="text-danger hover:opacity-70"
                           >
                             <Trash2 size={13} />
                           </button>
@@ -399,7 +399,7 @@ export function JobEditorPage() {
                   const steps = [...job.steps, emptyStep()];
                   updateJobAt(workflow, setWorkflow, jobIndex, { ...job, steps });
                 }}
-                className="mt-2 flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs hover:bg-[#f6f8fa]"
+                className="mt-2 flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs hover:bg-canvas-subtle"
               >
                 <Plus size={12} />
                 {t("editor.addStep")}
@@ -415,7 +415,7 @@ export function JobEditorPage() {
                 jobs: [...workflow.jobs, { key: `job${workflow.jobs.length + 1}`, runsOn: "local", steps: [emptyStep()] }],
               })
             }
-            className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-3 py-1.5 text-sm hover:bg-[#f6f8fa]"
+            className="flex items-center gap-1.5 rounded-md border border-line bg-canvas px-3 py-1.5 text-sm hover:bg-canvas-subtle"
           >
             <Plus size={14} />
             {t("editor.addJob")}
@@ -426,7 +426,7 @@ export function JobEditorPage() {
           value={yamlText}
           onChange={(e) => setYamlText(e.target.value)}
           spellCheck={false}
-          className="h-[60vh] w-full rounded-md border border-[#d0d7de] bg-[#0d1117] p-4 font-mono text-xs text-[#c9d1d9] outline-none focus:border-[#0969da]"
+          className="h-[60vh] w-full rounded-md border border-line bg-[#0d1117] p-4 font-mono text-xs text-[#c9d1d9] outline-none focus:border-link"
         />
       )}
     </div>

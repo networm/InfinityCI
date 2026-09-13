@@ -2,25 +2,26 @@ import i18next from "i18next";
 
 import type { JobRunStatus, RunStatus } from "./types";
 
-/** GitHub-Actions-style status glyph colors. */
+/** GitHub-Actions-style status glyph colors. Values are CSS variables so the
+///  SVG/inline usages follow the active light/dark theme automatically. */
 export function statusColor(status: RunStatus | JobRunStatus): { fg: string; bg: string } {
   switch (status) {
     case "Success":
-      return { fg: "#1a7f37", bg: "#dafbe1" };
+      return { fg: "var(--success)", bg: "var(--success-subtle)" };
     case "Failed":
-      return { fg: "#cf222e", bg: "#ffebe9" };
+      return { fg: "var(--danger)", bg: "var(--danger-subtle)" };
     case "Running":
-      return { fg: "#9a6700", bg: "#fff8c5" };
+      return { fg: "var(--attention)", bg: "var(--attention-subtle)" };
     case "Queued":
-      return { fg: "#57606a", bg: "#eaeef2" };
+      return { fg: "var(--fg-muted)", bg: "var(--chip)" };
     case "Cancelled":
-      return { fg: "#57606a", bg: "#eaeef2" };
+      return { fg: "var(--fg-muted)", bg: "var(--chip)" };
     case "Pending":
-      return { fg: "#57606a", bg: "#eaeef2" };
+      return { fg: "var(--fg-muted)", bg: "var(--chip)" };
     case "Skipped":
-      return { fg: "#57606a", bg: "#eaeef2" };
+      return { fg: "var(--fg-muted)", bg: "var(--chip)" };
     default:
-      return { fg: "#57606a", bg: "#eaeef2" };
+      return { fg: "var(--fg-muted)", bg: "var(--chip)" };
   }
 }
 

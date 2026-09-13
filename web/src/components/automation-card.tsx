@@ -38,8 +38,8 @@ export function AutomationCard({ name, onMessage }: { name: string; onMessage: (
   }, [reload]);
 
   return (
-    <div className="rounded-md border border-[#d0d7de] bg-white p-4">
-      <h2 className="mb-3 flex items-center gap-1.5 text-sm font-medium text-[#57606a]">
+    <div className="rounded-md border border-line bg-canvas p-4">
+      <h2 className="mb-3 flex items-center gap-1.5 text-sm font-medium text-fg-muted">
         <Webhook size={13} />
         {t("automation.title")}
       </h2>
@@ -49,7 +49,7 @@ export function AutomationCard({ name, onMessage }: { name: string; onMessage: (
         <span className="text-sm">{t("automation.workflowStatus")}</span>
         {state && (
           <>
-            <span className={state.enabled ? "rounded bg-[#dafbe1] px-2 py-0.5 text-xs text-[#1a7f37]" : "rounded bg-[#eaeef2] px-2 py-0.5 text-xs text-[#57606a]"}>
+            <span className={state.enabled ? "rounded bg-success-subtle px-2 py-0.5 text-xs text-success" : "rounded bg-chip px-2 py-0.5 text-xs text-fg-muted"}>
               {state.enabled ? t("common.enabled") : t("common.disabled")}
             </span>
             <button
@@ -62,7 +62,7 @@ export function AutomationCard({ name, onMessage }: { name: string; onMessage: (
                   onMessage(e instanceof Error ? e.message : String(e));
                 }
               }}
-              className="rounded-md border border-[#d0d7de] px-2.5 py-1 text-xs hover:bg-[#f3f4f6]"
+              className="rounded-md border border-line px-2.5 py-1 text-xs hover:bg-hover"
             >
               {state.enabled ? t("automation.disable") : t("automation.enable")}
             </button>
@@ -71,8 +71,8 @@ export function AutomationCard({ name, onMessage }: { name: string; onMessage: (
       </div>
 
       {/* incoming webhook */}
-      <div className="mb-4 rounded-md border border-[#eaeef2] p-3">
-        <div className="mb-2 text-xs font-medium text-[#57606a]">{t("automation.webhookTitle")}</div>
+      <div className="mb-4 rounded-md border border-line-muted p-3">
+        <div className="mb-2 text-xs font-medium text-fg-muted">{t("automation.webhookTitle")}</div>
         {webhookInfo ? (
           <div className="space-y-2">
             <div className="overflow-x-auto rounded-md bg-[#0d1117] p-2.5 font-mono text-xs text-[#c9d1d9]">
@@ -100,7 +100,7 @@ export function AutomationCard({ name, onMessage }: { name: string; onMessage: (
                   onMessage(e instanceof Error ? e.message : String(e));
                 }
               }}
-              className="rounded-md border border-[#d0d7de] px-2 py-1 text-xs text-[#cf222e] hover:bg-[#ffebe9]"
+              className="rounded-md border border-line px-2 py-1 text-xs text-danger hover:bg-danger-subtle"
             >
               {t("automation.revokeToken")}
             </button>
@@ -120,7 +120,7 @@ export function AutomationCard({ name, onMessage }: { name: string; onMessage: (
                 onMessage(e instanceof Error ? e.message : String(e));
               }
             }}
-            className="rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-xs hover:bg-[#f3f4f6]"
+            className="rounded-md border border-line px-2.5 py-1.5 text-xs hover:bg-hover"
           >
             {t("automation.issueToken")}
           </button>
@@ -128,14 +128,14 @@ export function AutomationCard({ name, onMessage }: { name: string; onMessage: (
       </div>
 
       {/* WeCom notify */}
-      <div className="rounded-md border border-[#eaeef2] p-3">
-        <div className="mb-2 text-xs font-medium text-[#57606a]">{t("automation.wecomTitle")}</div>
+      <div className="rounded-md border border-line-muted p-3">
+        <div className="mb-2 text-xs font-medium text-fg-muted">{t("automation.wecomTitle")}</div>
         <div className="flex flex-wrap items-center gap-2">
           <input
             value={notifyUrl}
             onChange={(e) => setNotifyUrl(e.target.value)}
             placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
-            className="w-96 max-w-full rounded-md border border-[#d0d7de] px-2.5 py-1.5 font-mono text-xs outline-none focus:border-[#0969da]"
+            className="w-96 max-w-full rounded-md border border-line px-2.5 py-1.5 font-mono text-xs outline-none focus:border-link"
           />
           <button
             type="button"
@@ -151,7 +151,7 @@ export function AutomationCard({ name, onMessage }: { name: string; onMessage: (
                 setSaving(false);
               }
             }}
-            className="rounded-md bg-[#2da44e] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
+            className="rounded-md bg-success-btn px-3 py-1.5 text-xs font-medium text-white hover:bg-success-btn-hover disabled:opacity-50"
           >
             {t("common.save")}
           </button>
@@ -166,7 +166,7 @@ export function AutomationCard({ name, onMessage }: { name: string; onMessage: (
                   onMessage(e instanceof Error ? e.message : String(e));
                 }
               }}
-              className="rounded-md border border-[#d0d7de] px-3 py-1.5 text-xs hover:bg-[#f6f8fa]"
+              className="rounded-md border border-line px-3 py-1.5 text-xs hover:bg-canvas-subtle"
             >
               {t("automation.clear")}
             </button>

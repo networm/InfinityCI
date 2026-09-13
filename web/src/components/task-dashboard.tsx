@@ -11,19 +11,20 @@ import { getCiHub } from "@/lib/signalr";
 import { useTranslation } from "react-i18next";
 import type { DashboardItem, Run } from "@/lib/types";
 
-/** Status → row background tint + left accent bar (Blue Ocean style). */
+/** Status → row background tint + left accent bar (Blue Ocean style). CSS
+///  variables so rows follow the active light/dark theme. */
 function rowColors(status: string | null): { bg: string; bar: string } {
   switch (status) {
     case "Success":
-      return { bg: "#f0fff4", bar: "#1a7f37" };
+      return { bg: "var(--success-subtle)", bar: "var(--success)" };
     case "Failed":
-      return { bg: "#fff1f0", bar: "#cf222e" };
+      return { bg: "var(--danger-subtle)", bar: "var(--danger)" };
     case "Running":
-      return { bg: "#fff8db", bar: "#9a6700" };
+      return { bg: "var(--attention-subtle)", bar: "var(--attention)" };
     case "Queued":
-      return { bg: "#f6f8fa", bar: "#57606a" };
+      return { bg: "var(--canvas-subtle)", bar: "var(--fg-muted)" };
     default:
-      return { bg: "#ffffff", bar: "#d0d7de" };
+      return { bg: "var(--canvas)", bar: "var(--line)" };
   }
 }
 
@@ -122,7 +123,7 @@ export function TaskDashboard() {
         <button
           type="button"
           onClick={() => void refresh()}
-          className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-3 py-1.5 text-sm hover:bg-[#f3f4f6]"
+          className="flex items-center gap-1.5 rounded-md border border-line bg-canvas px-3 py-1.5 text-sm hover:bg-hover"
         >
           <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
           {t("common.refresh")}
@@ -130,15 +131,15 @@ export function TaskDashboard() {
       </div>
 
       {message && (
-        <div className="rounded-md border border-[#ffc1bc] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">{message}</div>
+        <div className="rounded-md border border-danger-line bg-danger-subtle px-3 py-2 text-sm text-danger">{message}</div>
       )}
 
       {loading ? (
-        <div className="text-sm text-[#57606a]">{t("common.loading")}</div>
+        <div className="text-sm text-fg-muted">{t("common.loading")}</div>
       ) : items.length === 0 ? (
-        <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">
+        <div className="rounded-md border border-line bg-canvas p-6 text-sm text-fg-muted">
           {t("dashboard.empty")}
-          <Link to="/jobs/new" className="ml-1 text-[#0969da] hover:underline">
+          <Link to="/jobs/new" className="ml-1 text-link hover:underline">
             {t("dashboard.createFirst")}
           </Link>
         </div>
@@ -146,7 +147,7 @@ export function TaskDashboard() {
         <>
           {favorites.length > 0 && (
             <section>
-              <h2 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-[#57606a]">
+              <h2 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-fg-muted">
                 <Star size={13} className="fill-[#eac54f] text-[#eac54f]" />
                 {t("dashboard.favorites")}
               </h2>
@@ -160,7 +161,7 @@ export function TaskDashboard() {
           )}
 
           <section>
-            {favorites.length > 0 && <h2 className="mb-2 text-sm font-medium text-[#57606a]">{t("dashboard.all")}</h2>}
+            {favorites.length > 0 && <h2 className="mb-2 text-sm font-medium text-fg-muted">{t("dashboard.all")}</h2>}
             <div className="space-y-2">
               {others.map((item) => (
                 <WorkflowRow key={item.name} item={item} onTrigger={trigger} onToggleFavorite={toggleFavorite}
@@ -196,7 +197,7 @@ function WorkflowRow({
   return (
     <div
       onClick={() => onOpen(openTarget)}
-      className="flex cursor-pointer items-center gap-3 rounded-md border border-[#d0d7de] px-3 py-2.5 transition-shadow hover:shadow-md"
+      className="flex cursor-pointer items-center gap-3 rounded-md border border-line px-3 py-2.5 transition-shadow hover:shadow-md"
       style={{ backgroundColor: colors.bg, borderLeft: `4px solid ${colors.bar}` }}
     >
       <StatusIcon status={(lastStatus ?? "Queued") as never} size={18} />
@@ -209,27 +210,27 @@ function WorkflowRow({
         }}
         className="shrink-0"
       >
-        <Star size={16} className={item.isFavorite ? "fill-[#eac54f] text-[#eac54f]" : "text-[#8c959f] hover:text-[#eac54f]"} />
+        <Star size={16} className={item.isFavorite ? "fill-[#eac54f] text-[#eac54f]" : "text-dim hover:text-[#eac54f]"} />
       </button>
       <Link
         to="/jobs/$name"
         params={{ name: item.name }}
         onClick={(e) => e.stopPropagation()}
-        className="shrink-0 text-sm font-semibold hover:text-[#0969da] hover:underline"
+        className="shrink-0 text-sm font-semibold hover:text-link hover:underline"
       >
         {item.name}
       </Link>
-      <span className="shrink-0 rounded bg-[#eaeef2] px-1.5 py-0.5 text-xs text-[#57606a]">{item.project}</span>
-      {!item.enabled && <span className="shrink-0 rounded bg-[#8c959f] px-1.5 py-0.5 text-xs text-white">{t("common.disabled")}</span>}
+      <span className="shrink-0 rounded bg-chip px-1.5 py-0.5 text-xs text-fg-muted">{item.project}</span>
+      {!item.enabled && <span className="shrink-0 rounded bg-dim px-1.5 py-0.5 text-xs text-white">{t("common.disabled")}</span>}
 
       {/* branch + latest commit */}
       <div className="hidden min-w-0 flex-1 items-center gap-2 md:flex">
         {item.branch && (
-          <span className="shrink-0 rounded bg-[#ddf4ff] px-1.5 py-0.5 font-mono text-xs text-[#0969da]">{item.branch}</span>
+          <span className="shrink-0 rounded bg-link-subtle px-1.5 py-0.5 font-mono text-xs text-link">{item.branch}</span>
         )}
         {item.commitSha && (
-          <span className="truncate text-xs text-[#57606a]">
-            <code className="font-mono text-[#0969da]">{item.commitSha.slice(0, 7)}</code>{" "}
+          <span className="truncate text-xs text-fg-muted">
+            <code className="font-mono text-link">{item.commitSha.slice(0, 7)}</code>{" "}
             {item.commitMessage && <span className="mr-1.5">{item.commitMessage}</span>}
             {item.commitAuthor && <span>· {item.commitAuthor}</span>}
           </span>
@@ -237,10 +238,10 @@ function WorkflowRow({
       </div>
 
       {/* last build */}
-      <div className="ml-auto hidden shrink-0 items-center gap-2 text-xs text-[#57606a] lg:flex">
+      <div className="ml-auto hidden shrink-0 items-center gap-2 text-xs text-fg-muted lg:flex">
         {item.lastRun ? (
           <>
-            <Link to="/runs/$runId" params={{ runId: String(item.lastRun.id) }} className="hover:text-[#0969da] hover:underline">
+            <Link to="/runs/$runId" params={{ runId: String(item.lastRun.id) }} className="hover:text-link hover:underline">
               #{item.lastRun.id}
             </Link>
             <span>{lastStatus && statusLabel(lastStatus)}</span>
@@ -259,7 +260,7 @@ function WorkflowRow({
           e.stopPropagation();
           onTrigger(item.name);
         }}
-        className="ml-2 flex shrink-0 items-center gap-1 rounded-md bg-[#2da44e] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#2c974b] disabled:cursor-not-allowed disabled:bg-[#8c959f] disabled:opacity-60"
+        className="ml-2 flex shrink-0 items-center gap-1 rounded-md bg-success-btn px-2.5 py-1.5 text-xs font-medium text-white hover:bg-success-btn-hover disabled:cursor-not-allowed disabled:bg-dim disabled:opacity-60"
       >
         <Play size={12} />
         Run

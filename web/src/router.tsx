@@ -13,7 +13,7 @@ import { WorkflowDetailPage } from "./pages/workflow-detail";
 
 function NotFound() {
   const { t } = useTranslation();
-  return <div className="py-16 text-center text-sm text-[#57606a]">{t("notFound")}</div>;
+  return <div className="py-16 text-center text-sm text-fg-muted">{t("notFound")}</div>;
 }
 
 const rootRoute = createRootRoute({

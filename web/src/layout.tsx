@@ -2,6 +2,7 @@ import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 
 import { LanguageToggle } from "@/components/language-toggle";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useMe } from "@/lib/me-context";
 import { useResolveUserName } from "@/lib/user-names";
 
@@ -19,7 +20,7 @@ export function AppLayout() {
   const location = useRouterState({ select: (s) => s.location.pathname });
 
   return (
-    <div className="min-h-screen bg-[#f6f8fa] text-[#24292f]">
+    <div className="min-h-screen bg-canvas-subtle text-fg">
       <header className="bg-[#24292f] text-white">
         <div className="mx-auto flex h-14 max-w-[1280px] items-center gap-6 px-4">
           <Link to="/" className="flex items-center gap-2 text-sm font-semibold">
@@ -57,6 +58,7 @@ export function AppLayout() {
             )}
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
+            <ThemeToggle dark />
             <LanguageToggle dark />
             <span className="text-white/80" title={me?.username}>
               {(me && resolveName(me.username)) || me?.username}

@@ -123,10 +123,10 @@ export function BuildDetailPage() {
         <div className="flex items-center gap-3">
           {run && <StatusIcon status={run.status} size={22} />}
           <h1 className="text-xl font-semibold">
-            {run?.workflowName ?? "…"} <span className="text-[#57606a]">#{runId}</span>
+            {run?.workflowName ?? "…"} <span className="text-fg-muted">#{runId}</span>
           </h1>
         </div>
-        <div className="flex items-center gap-3 text-xs text-[#57606a]">
+        <div className="flex items-center gap-3 text-xs text-fg-muted">
           {run && (
             <span>{t("runDetail.triggeredBy", { name: resolveName(run.triggeredBy), project: run.project })}</span>
           )}
@@ -144,7 +144,7 @@ export function BuildDetailPage() {
                   setRetrying(false);
                 }
               }}
-              className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-2.5 py-1.5 text-xs text-[#1a7f37] hover:bg-[#dafbe1]"
+              className="flex items-center gap-1.5 rounded-md border border-line bg-canvas px-2.5 py-1.5 text-xs text-success hover:bg-success-subtle"
             >
               <RotateCcw size={12} />
               {t("runDetail.retryFromFailedStep")}
@@ -162,7 +162,7 @@ export function BuildDetailPage() {
                   setCancelling(false);
                 }
               }}
-              className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-2.5 py-1.5 text-xs text-[#cf222e] hover:bg-[#ffebe9]"
+              className="flex items-center gap-1.5 rounded-md border border-line bg-canvas px-2.5 py-1.5 text-xs text-danger hover:bg-danger-subtle"
             >
               <Ban size={12} />
               {t("runDetail.cancelRun")}
@@ -173,17 +173,17 @@ export function BuildDetailPage() {
 
       {run && Object.keys(run.params ?? {}).length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-[#57606a]">{t("runDetail.params")}</span>
+          <span className="text-fg-muted">{t("runDetail.params")}</span>
           {Object.entries(run.params).map(([key, value]) => (
-            <span key={key} className="rounded bg-[#eaeef2] px-1.5 py-0.5 font-mono">
-              {key}=<span className="text-[#57606a]">{value}</span>
+            <span key={key} className="rounded bg-chip px-1.5 py-0.5 font-mono">
+              {key}=<span className="text-fg-muted">{value}</span>
             </span>
           ))}
         </div>
       )}
 
       {error && (
-        <div className="rounded-md border border-[#ffc1bc] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">{error}</div>
+        <div className="rounded-md border border-danger-line bg-danger-subtle px-3 py-2 text-sm text-danger">{error}</div>
       )}
 
       {/* Job dependency DAG (GitHub style) — always rendered, needs or not */}
@@ -201,27 +201,27 @@ export function BuildDetailPage() {
             value={jobFilter}
             onChange={(e) => setJobFilter(e.target.value)}
             placeholder={t("runDetail.filterJobs")}
-            className="mb-2 w-full rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da]"
+            className="mb-2 w-full rounded-md border border-line px-2.5 py-1.5 text-sm outline-none focus:border-link"
           />
-          <div className="overflow-hidden rounded-md border border-[#d0d7de] bg-white">
+          <div className="overflow-hidden rounded-md border border-line bg-canvas">
             {filteredJobs.map((job) => (
               <button
                 key={job.id}
                 type="button"
                 onClick={() => setSelectedJob(job.jobKey)}
                 className={
-                  "flex w-full items-center gap-2 border-b border-[#d8dee4] px-3 py-2 text-left text-sm last:border-0 hover:bg-[#f6f8fa] " +
-                  (currentJob?.jobKey === job.jobKey ? "bg-[#ddf4ff] font-medium" : "")
+                  "flex w-full items-center gap-2 border-b border-line-muted px-3 py-2 text-left text-sm last:border-0 hover:bg-canvas-subtle " +
+                  (currentJob?.jobKey === job.jobKey ? "bg-link-subtle font-medium" : "")
                 }
               >
                 <StatusIcon status={job.status} size={14} />
                 <span className="truncate">{job.jobKey}</span>
-                <span className="ml-auto text-xs text-[#57606a]">
+                <span className="ml-auto text-xs text-fg-muted">
                   {job.runsOn.startsWith("agent") ? "Agent" : t("runDetail.local")}
                 </span>
               </button>
             ))}
-            {filteredJobs.length === 0 && <div className="px-3 py-3 text-xs text-[#57606a]">{t("runDetail.noMatchingJobs")}</div>}
+            {filteredJobs.length === 0 && <div className="px-3 py-3 text-xs text-fg-muted">{t("runDetail.noMatchingJobs")}</div>}
           </div>
         </aside>
 
@@ -230,7 +230,7 @@ export function BuildDetailPage() {
           {currentJob ? (
             <JobConsole job={currentJob} lines={logs[currentJob.jobKey] ?? []} />
           ) : (
-            <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">{t("runDetail.selectJobHint")}</div>
+            <div className="rounded-md border border-line bg-canvas p-6 text-sm text-fg-muted">{t("runDetail.selectJobHint")}</div>
           )}
         </section>
       </div>
@@ -239,13 +239,13 @@ export function BuildDetailPage() {
 }
 
 const DAG_STATUS_STROKE: Record<string, string> = {
-  Success: "#1a7f37",
-  Failed: "#cf222e",
-  Running: "#9a6700",
-  Cancelled: "#57606a",
-  Queued: "#8c959f",
-  Pending: "#8c959f",
-  Skipped: "#d1d9e0",
+  Success: "var(--success)",
+  Failed: "var(--danger)",
+  Running: "var(--attention)",
+  Cancelled: "var(--fg-muted)",
+  Queued: "var(--dim)",
+  Pending: "var(--dim)",
+  Skipped: "var(--line)",
 };
 
 function DagView({
@@ -263,7 +263,7 @@ function DagView({
   const layout = useMemo(() => layoutDag(jobs, runStatus), [jobs, runStatus]);
 
   return (
-    <div className="flex justify-center overflow-x-auto rounded-md border border-[#d0d7de] bg-white p-4">
+    <div className="flex justify-center overflow-x-auto rounded-md border border-line bg-canvas p-4">
       <svg width={layout.width} height={layout.height + 24} role="img" aria-label={t("runDetail.dagAria")} style={{ minWidth: layout.width }}>
         {layout.edges.map((edge) => {
           const highlight = selected === edge.to || selected === edge.from;
@@ -272,7 +272,7 @@ function DagView({
               key={`${edge.from}->${edge.to}`}
               d={edge.d}
               fill="none"
-              stroke={highlight ? "#0969da" : "#d1d9e0"}
+              style={{ stroke: highlight ? "var(--link)" : "var(--line)" }}
               strokeWidth={highlight ? 2.5 : 2}
               strokeLinecap="round"
             />
@@ -282,7 +282,7 @@ function DagView({
           if (node.kind === "job") {
             const isSelected = node.jobKey === selected;
             const status = node.status ?? "Queued";
-            const stroke = DAG_STATUS_STROKE[status] ?? "#8c959f";
+            const stroke = DAG_STATUS_STROKE[status] ?? "var(--dim)";
             return (
               <g
                 key={node.jobKey!}
@@ -292,12 +292,20 @@ function DagView({
               >
                 <circle
                   r={14}
-                  fill={isSelected ? "#ddf4ff" : "#ffffff"}
-                  stroke={isSelected ? "#0969da" : stroke}
+                  style={{
+                    fill: isSelected ? "var(--link-subtle)" : "var(--canvas)",
+                    stroke: isSelected ? "var(--link)" : stroke,
+                  }}
                   strokeWidth={isSelected ? 2.5 : 2}
                 />
                 <StatusGlyph status={status} />
-                <text y={32} textAnchor="middle" fontSize={12} fill={isSelected ? "#0969da" : "#24292f"} fontFamily="inherit">
+                <text
+                  y={32}
+                  textAnchor="middle"
+                  fontSize={12}
+                  style={{ fill: isSelected ? "var(--link)" : "var(--fg)" }}
+                  fontFamily="inherit"
+                >
                   {node.jobKey}
                 </text>
               </g>
@@ -306,14 +314,14 @@ function DagView({
           // start / end virtual nodes; the end bubble shows the run result glyph
           const isEnd = node.kind === "end";
           const status = isEnd ? node.status : null;
-          const stroke = isEnd ? DAG_STATUS_STROKE[status ?? "Queued"] ?? "#8c959f" : "#57606a";
+          const stroke = isEnd ? DAG_STATUS_STROKE[status ?? "Queued"] ?? "var(--dim)" : "var(--fg-muted)";
           return (
             <g key={node.kind} transform={`translate(${node.cx}, ${node.cy})`}>
-              <circle r={11} fill="#f6f8fa" stroke={stroke} strokeWidth={2} />
+              <circle r={11} style={{ fill: "var(--canvas-subtle)", stroke }} strokeWidth={2} />
               {isEnd ? <StatusGlyph status={status ?? "Queued"} compact /> : (
-                <path d="M -4 0 L 4 0 M 0 -4 L 0 4" stroke={stroke} strokeWidth={1.5} />
+                <path d="M -4 0 L 4 0 M 0 -4 L 0 4" style={{ stroke }} strokeWidth={1.5} />
               )}
-              <text y={28} textAnchor="middle" fontSize={11} fill="#57606a" fontFamily="inherit">
+              <text y={28} textAnchor="middle" fontSize={11} style={{ fill: "var(--fg-muted)" }} fontFamily="inherit">
                 {isEnd ? t("runDetail.dagEnd") : t("runDetail.dagStart")}
               </text>
             </g>
@@ -377,19 +385,19 @@ function StepSection({
   const stickToBottom = useRef(true);
 
   return (
-    <div className="overflow-hidden rounded-md border border-[#d0d7de] bg-white">
+    <div className="overflow-hidden rounded-md border border-line bg-canvas">
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[#f6f8fa]"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-canvas-subtle"
       >
         {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
         <StatusIcon status={step.status} size={14} />
         <span className="font-medium">{step.name}</span>
         {step.exitCode !== null && step.exitCode !== 0 && (
-          <span className="text-xs text-[#cf222e]">exit {step.exitCode}</span>
+          <span className="text-xs text-danger">exit {step.exitCode}</span>
         )}
-        <span className="ml-auto text-xs text-[#57606a]">{formatDuration(step.startedAt, step.finishedAt)}</span>
+        <span className="ml-auto text-xs text-fg-muted">{formatDuration(step.startedAt, step.finishedAt)}</span>
       </button>
       {!collapsed && (
         <div
@@ -442,7 +450,7 @@ function AutoScroll({
 ///  amber arc for running, dot for queued/pending/skipped. */
 function StatusGlyph({ status, compact = false }: { status: string; compact?: boolean }) {
   const scale = compact ? 0.75 : 1;
-  const color = DAG_STATUS_STROKE[status] ?? "#8c959f";
+  const color = DAG_STATUS_STROKE[status] ?? "var(--dim)";
   const w = 2.5 * scale;
   switch (status) {
     case "Success":
@@ -450,7 +458,7 @@ function StatusGlyph({ status, compact = false }: { status: string; compact?: bo
         <path
           d={`M ${-6 * scale} 0 L ${-1.5 * scale} ${4.5 * scale} L ${6 * scale} ${-4.5 * scale}`}
           fill="none"
-          stroke={color}
+          style={{ stroke: color }}
           strokeWidth={w}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -461,7 +469,7 @@ function StatusGlyph({ status, compact = false }: { status: string; compact?: bo
       return (
         <path
           d={`M ${-5 * scale} ${-5 * scale} L ${5 * scale} ${5 * scale} M ${5 * scale} ${-5 * scale} L ${-5 * scale} ${5 * scale}`}
-          stroke={status === "Cancelled" ? "#8c959f" : color}
+          style={{ stroke: status === "Cancelled" ? "var(--dim)" : color }}
           strokeWidth={w}
           strokeLinecap="round"
         />
@@ -470,17 +478,16 @@ function StatusGlyph({ status, compact = false }: { status: string; compact?: bo
       return (
         <path
           className="animate-spin"
-          style={{ transformBox: "fill-box", transformOrigin: "center" }}
+          style={{ transformBox: "fill-box", transformOrigin: "center", stroke: color }}
           d="M 0 -8 A 8 8 0 1 1 -7.4 3.5"
           fill="none"
-          stroke={color}
           strokeWidth={w}
           strokeLinecap="round"
         />
       );
     default:
       // Queued / Pending / Skipped
-      return <circle r={3.5 * scale} fill={color} />;
+      return <circle r={3.5 * scale} style={{ fill: color }} />;
   }
 }
 
@@ -490,32 +497,32 @@ function JobHeader({ job }: { job: JobRun }) {
   const base = `/api/runs/${job.runId}/logs/${encodeURIComponent(job.jobKey)}/download`;
 
   return (
-    <div className="relative flex items-center gap-2 rounded-md border border-[#d0d7de] bg-white px-3 py-2.5">
+    <div className="relative flex items-center gap-2 rounded-md border border-line bg-canvas px-3 py-2.5">
       <StatusIcon status={job.status} size={18} />
       <span className="text-sm font-semibold">{job.jobKey}</span>
-      {job.agentId && <span className="rounded bg-[#ddf4ff] px-1.5 py-0.5 text-xs text-[#0969da]">agent</span>}
-      <span className="ml-auto text-xs text-[#57606a]">{formatDuration(job.startedAt, job.finishedAt)}</span>
+      {job.agentId && <span className="rounded bg-link-subtle px-1.5 py-0.5 text-xs text-link">agent</span>}
+      <span className="ml-auto text-xs text-fg-muted">{formatDuration(job.startedAt, job.finishedAt)}</span>
       <div className="relative">
         <button
           type="button"
           onClick={() => setOpen((prev) => !prev)}
-          className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] px-2 py-1 text-xs hover:bg-[#f3f4f6]"
+          className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs hover:bg-hover"
         >
           <Download size={12} />
           {t("runDetail.downloadLog")}
         </button>
         {open && (
-          <div className="absolute right-0 z-10 mt-1 w-44 overflow-hidden rounded-md border border-[#d0d7de] bg-white shadow-lg">
+          <div className="absolute right-0 z-10 mt-1 w-44 overflow-hidden rounded-md border border-line bg-canvas shadow-lg">
             <a
               href={`${base}?format=raw`}
-              className="block px-3 py-2 text-xs hover:bg-[#f6f8fa]"
+              className="block px-3 py-2 text-xs hover:bg-canvas-subtle"
               onClick={() => setOpen(false)}
             >
               {t("runDetail.rawLog")}
             </a>
             <a
               href={`${base}?format=timestamped`}
-              className="block px-3 py-2 text-xs hover:bg-[#f6f8fa]"
+              className="block px-3 py-2 text-xs hover:bg-canvas-subtle"
               onClick={() => setOpen(false)}
             >
               {t("runDetail.timestampedLog")}

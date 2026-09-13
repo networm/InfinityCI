@@ -20,5 +20,14 @@ export default defineConfig({
   },
   html: {
     title: "Infinity CI",
+    tags: [
+      {
+        tag: "script",
+        head: true,
+        append: false,
+        children:
+          "(() => { try { const t = localStorage.getItem('infinityci.theme'); if (t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('dark'); } catch {} })();",
+      },
+    ],
   },
 });

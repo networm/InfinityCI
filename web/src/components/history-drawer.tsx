@@ -33,32 +33,32 @@ export function HistoryDrawer({ name, isAdmin, onClose }: { name: string; isAdmi
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-black/30" onClick={onClose}>
       <div
-        className="h-full w-[480px] overflow-auto bg-white p-5 shadow-xl"
+        className="h-full w-[480px] overflow-auto bg-canvas p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-base font-semibold">{t("history.title", { name })}</h2>
-          <button type="button" onClick={onClose} className="text-[#57606a] hover:text-[#24292f]">
+          <button type="button" onClick={onClose} className="text-fg-muted hover:text-fg">
             <X size={18} />
           </button>
         </div>
 
         {message && (
-          <div className="mb-3 rounded-md border border-[#ffc1bc] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">{message}</div>
+          <div className="mb-3 rounded-md border border-danger-line bg-danger-subtle px-3 py-2 text-sm text-danger">{message}</div>
         )}
 
         {commits === null ? (
-          <div className="text-sm text-[#57606a]">{t("common.loading")}</div>
+          <div className="text-sm text-fg-muted">{t("common.loading")}</div>
         ) : commits.length === 0 ? (
-          <div className="text-sm text-[#57606a]">{t("history.empty")}</div>
+          <div className="text-sm text-fg-muted">{t("history.empty")}</div>
         ) : (
           <div className="space-y-2">
             {commits.map((commit) => (
-              <div key={commit.sha} className="rounded-md border border-[#d0d7de] p-3">
+              <div key={commit.sha} className="rounded-md border border-line p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{commit.message}</div>
-                    <div className="text-xs text-[#57606a]">
+                    <div className="text-xs text-fg-muted">
                       {commit.author} · {formatDateTime(commit.when)} ·{" "}
                       <code className="font-mono">{commit.sha.slice(0, 7)}</code>
                     </div>
@@ -75,7 +75,7 @@ export function HistoryDrawer({ name, isAdmin, onClose }: { name: string; isAdmi
                         setMessage(e instanceof Error ? e.message : String(e));
                       }
                     }}
-                    className="rounded-md border border-[#d0d7de] px-2 py-1 text-xs hover:bg-[#f3f4f6]"
+                    className="rounded-md border border-line px-2 py-1 text-xs hover:bg-hover"
                   >
                     {t("history.viewVersion")}
                   </button>
@@ -93,7 +93,7 @@ export function HistoryDrawer({ name, isAdmin, onClose }: { name: string; isAdmi
                           setMessage(e instanceof Error ? e.message : String(e));
                         }
                       }}
-                      className="flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs text-[#0969da] hover:bg-[#ddf4ff]"
+                      className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs text-link hover:bg-link-subtle"
                     >
                       <Undo2 size={12} />
                       {t("history.restoreVersion")}
@@ -108,8 +108,8 @@ export function HistoryDrawer({ name, isAdmin, onClose }: { name: string; isAdmi
         {preview && (
           <div className="mt-4">
             <div className="mb-1 flex items-center justify-between">
-              <span className="text-xs font-medium text-[#57606a]">{t("history.previewTitle", { sha: preview.sha.slice(0, 7) })}</span>
-              <button type="button" onClick={() => setPreview(null)} className="text-xs text-[#0969da] hover:underline">
+              <span className="text-xs font-medium text-fg-muted">{t("history.previewTitle", { sha: preview.sha.slice(0, 7) })}</span>
+              <button type="button" onClick={() => setPreview(null)} className="text-xs text-link hover:underline">
                 {t("history.closePreview")}
               </button>
             </div>

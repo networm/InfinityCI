@@ -47,6 +47,59 @@
   --ring: oklch(0.556 0 0);
 }
 
+/* App palette (GitHub Primer). Light values are the historical hardcoded
+   colors; dark values follow Primer dark so both themes read natively.
+   The top navigation bar and log/code terminals stay dark in both themes. */
+:root {
+  --canvas: #ffffff;
+  --canvas-subtle: #f6f8fa;
+  --chip: #eaeef2;
+  --fg: #24292f;
+  --fg-muted: #57606a;
+  --line: #d0d7de;
+  --line-muted: #d8dee4;
+  --hover: #f3f4f6;
+  --link: #0969da;
+  --link-subtle: #ddf4ff;
+  --link-line: #a5b8fc;
+  --link-fg: #0550ae;
+  --success: #1a7f37;
+  --success-subtle: #dafbe1;
+  --success-btn: #2da44e;
+  --success-btn-hover: #2c974b;
+  --danger: #cf222e;
+  --danger-subtle: #ffebe9;
+  --danger-line: #ffc1bc;
+  --attention: #9a6700;
+  --attention-subtle: #fff8c5;
+  --dim: #8c959f;
+}
+
+.dark {
+  --canvas: #0d1117;
+  --canvas-subtle: #161b22;
+  --chip: #21262d;
+  --fg: #e6edf3;
+  --fg-muted: #8b949e;
+  --line: #30363d;
+  --line-muted: #21262d;
+  --hover: #21262d;
+  --link: #4493f8;
+  --link-subtle: #121d2f;
+  --link-line: #1f6feb;
+  --link-fg: #4493f8;
+  --success: #3fb950;
+  --success-subtle: #12261e;
+  --success-btn: #238636;
+  --success-btn-hover: #2ea043;
+  --danger: #f85149;
+  --danger-subtle: #25171c;
+  --danger-line: #5c2a28;
+  --attention: #d29922;
+  --attention-subtle: #272215;
+  --dim: #6e7681;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -70,10 +123,35 @@
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
+
+  --color-canvas: var(--canvas);
+  --color-canvas-subtle: var(--canvas-subtle);
+  --color-chip: var(--chip);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-line: var(--line);
+  --color-line-muted: var(--line-muted);
+  --color-hover: var(--hover);
+  --color-link: var(--link);
+  --color-link-subtle: var(--link-subtle);
+  --color-link-line: var(--link-line);
+  --color-link-fg: var(--link-fg);
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-success-btn: var(--success-btn);
+  --color-success-btn-hover: var(--success-btn-hover);
+  --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-danger-line: var(--danger-line);
+  --color-attention: var(--attention);
+  --color-attention-subtle: var(--attention-subtle);
+  --color-dim: var(--dim);
 }
 
 body {
   font-family:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
     "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background-color: var(--canvas);
+  color: var(--fg);
 }

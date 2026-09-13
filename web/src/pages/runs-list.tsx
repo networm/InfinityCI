@@ -86,7 +86,7 @@ export function RunsListPage() {
         <button
           type="button"
           onClick={() => void refresh()}
-          className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-3 py-1.5 text-sm hover:bg-[#f3f4f6]"
+          className="flex items-center gap-1.5 rounded-md border border-line bg-canvas px-3 py-1.5 text-sm hover:bg-hover"
         >
           <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
           {t("common.refresh")}
@@ -94,16 +94,16 @@ export function RunsListPage() {
       </div>
 
       {loading ? (
-        <div className="text-sm text-[#57606a]">{t("common.loading")}</div>
+        <div className="text-sm text-fg-muted">{t("common.loading")}</div>
       ) : items.length === 0 ? (
-        <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">
+        <div className="rounded-md border border-line bg-canvas p-6 text-sm text-fg-muted">
           {t("runs.empty")}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-md border border-[#d0d7de] bg-white">
+        <div className="overflow-hidden rounded-md border border-line bg-canvas">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#d0d7de] bg-[#f6f8fa] text-left text-xs text-[#57606a]">
+              <tr className="border-b border-line bg-canvas-subtle text-left text-xs text-fg-muted">
                 <th className="w-10 px-3 py-2">{t("columns.status")}</th>
                 <th className="px-3 py-2">Run</th>
                 <th className="px-3 py-2">Jobs</th>
@@ -117,30 +117,30 @@ export function RunsListPage() {
                 <tr
                   key={item.run.id}
                   onClick={() => navigate({ to: "/runs/$runId", params: { runId: String(item.run.id) } })}
-                  className="cursor-pointer border-b border-[#d8dee4] last:border-0 hover:bg-[#f6f8fa]"
+                  className="cursor-pointer border-b border-line-muted last:border-0 hover:bg-canvas-subtle"
                 >
                   <td className="px-3 py-2">
                     <StatusIcon status={item.run.status} />
                   </td>
                   <td className="px-3 py-2">
-                    <Link to="/runs/$runId" params={{ runId: String(item.run.id) }} className="hover:text-[#0969da] hover:underline">
+                    <Link to="/runs/$runId" params={{ runId: String(item.run.id) }} className="hover:text-link hover:underline">
                       <span className="font-medium">{item.run.workflowName}</span>{" "}
-                      <span className="text-[#57606a]">#{item.run.id}</span>
+                      <span className="text-fg-muted">#{item.run.id}</span>
                     </Link>
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1.5">
                       {item.jobs.map((j) => (
-                        <span key={j.id} className="flex items-center gap-1 text-xs text-[#57606a]">
+                        <span key={j.id} className="flex items-center gap-1 text-xs text-fg-muted">
                           <StatusIcon status={j.status} size={12} />
                           {j.jobKey}
                         </span>
                       ))}
                     </div>
                   </td>
-                  <td className="px-3 py-2 text-[#57606a]">{resolveName(item.run.triggeredBy)}</td>
-                  <td className="px-3 py-2 text-[#57606a]">{formatDateTime(item.run.createdAt)}</td>
-                  <td className="px-3 py-2 text-[#57606a]">{formatDuration(item.run.startedAt, item.run.finishedAt)}</td>
+                  <td className="px-3 py-2 text-fg-muted">{resolveName(item.run.triggeredBy)}</td>
+                  <td className="px-3 py-2 text-fg-muted">{formatDateTime(item.run.createdAt)}</td>
+                  <td className="px-3 py-2 text-fg-muted">{formatDuration(item.run.startedAt, item.run.finishedAt)}</td>
                 </tr>
               ))}
             </tbody>

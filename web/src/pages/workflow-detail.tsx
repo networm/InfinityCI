@@ -149,9 +149,9 @@ export function WorkflowDetailPage() {
 
   if (notFound) {
     return (
-      <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">
+      <div className="rounded-md border border-line bg-canvas p-6 text-sm text-fg-muted">
         {t("workflow.notFound", { name })}
-        <Link to="/jobs" className="ml-1 text-[#0969da] hover:underline">{t("workflow.backToList")}</Link>
+        <Link to="/jobs" className="ml-1 text-link hover:underline">{t("workflow.backToList")}</Link>
       </div>
     );
   }
@@ -184,7 +184,7 @@ export function WorkflowDetailPage() {
       />
 
       {message && (
-        <div className="rounded-md border border-[#ffc1bc] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">{message}</div>
+        <div className="rounded-md border border-danger-line bg-danger-subtle px-3 py-2 text-sm text-danger">{message}</div>
       )}
 
       {isAdmin && (
@@ -193,11 +193,11 @@ export function WorkflowDetailPage() {
 
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-[#57606a]">{t("workflow.historyTitle", { total })}</h2>
+          <h2 className="text-sm font-medium text-fg-muted">{t("workflow.historyTitle", { total })}</h2>
           <button
             type="button"
             onClick={() => void loadPage(page)}
-            className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] bg-white px-2.5 py-1 text-xs hover:bg-[#f3f4f6]"
+            className="flex items-center gap-1.5 rounded-md border border-line bg-canvas px-2.5 py-1 text-xs hover:bg-hover"
           >
             <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
             {t("common.refresh")}
@@ -205,16 +205,16 @@ export function WorkflowDetailPage() {
         </div>
 
         {loading ? (
-          <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">{t("common.loading")}</div>
+          <div className="rounded-md border border-line bg-canvas p-6 text-sm text-fg-muted">{t("common.loading")}</div>
         ) : items.length === 0 ? (
-          <div className="rounded-md border border-[#d0d7de] bg-white p-6 text-sm text-[#57606a]">
+          <div className="rounded-md border border-line bg-canvas p-6 text-sm text-fg-muted">
             {t("workflow.emptyRuns")}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-md border border-[#d0d7de] bg-white">
+          <div className="overflow-hidden rounded-md border border-line bg-canvas">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-[#d0d7de] bg-[#f6f8fa] text-left text-xs text-[#57606a]">
+                <tr className="border-b border-line bg-canvas-subtle text-left text-xs text-fg-muted">
                   <th className="w-10 px-3 py-2">{t("columns.status")}</th>
                   <th className="px-3 py-2">Run</th>
                   <th className="px-3 py-2">Jobs</th>
@@ -228,29 +228,29 @@ export function WorkflowDetailPage() {
                   <tr
                     key={item.run.id}
                     onClick={() => navigate({ to: "/runs/$runId", params: { runId: String(item.run.id) } })}
-                    className="cursor-pointer border-b border-[#d8dee4] last:border-0 hover:bg-[#f6f8fa]"
+                    className="cursor-pointer border-b border-line-muted last:border-0 hover:bg-canvas-subtle"
                   >
                     <td className="px-3 py-2">
                       <StatusIcon status={item.run.status} />
                     </td>
                     <td className="px-3 py-2">
-                      <Link to="/runs/$runId" params={{ runId: String(item.run.id) }} className="hover:text-[#0969da] hover:underline">
+                      <Link to="/runs/$runId" params={{ runId: String(item.run.id) }} className="hover:text-link hover:underline">
                         <span className="font-medium">#{item.run.id}</span>
                       </Link>
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1.5">
                         {item.jobs.map((j) => (
-                          <span key={j.id} className="flex items-center gap-1 text-xs text-[#57606a]">
+                          <span key={j.id} className="flex items-center gap-1 text-xs text-fg-muted">
                             <StatusIcon status={j.status} size={12} />
                             {j.jobKey}
                           </span>
                         ))}
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-[#57606a]">{resolveName(item.run.triggeredBy)}</td>
-                    <td className="px-3 py-2 text-[#57606a]">{formatDateTime(item.run.createdAt)}</td>
-                    <td className="px-3 py-2 text-[#57606a]">{formatDuration(item.run.startedAt, item.run.finishedAt)}</td>
+                    <td className="px-3 py-2 text-fg-muted">{resolveName(item.run.triggeredBy)}</td>
+                    <td className="px-3 py-2 text-fg-muted">{formatDateTime(item.run.createdAt)}</td>
+                    <td className="px-3 py-2 text-fg-muted">{formatDuration(item.run.startedAt, item.run.finishedAt)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -261,7 +261,7 @@ export function WorkflowDetailPage() {
         {/* Pagination */}
         {total > 0 && (
           <div className="mt-3 flex items-center justify-between text-sm">
-            <span className="text-xs text-[#57606a]">
+            <span className="text-xs text-fg-muted">
               {t("workflow.paginationRange", { from: page * PAGE_SIZE + 1, to: Math.min((page + 1) * PAGE_SIZE, total), total })}
             </span>
             <div className="flex items-center gap-2">
@@ -269,19 +269,19 @@ export function WorkflowDetailPage() {
                 type="button"
                 disabled={page === 0 || refreshing}
                 onClick={() => void loadPage(page - 1)}
-                className="flex items-center gap-1 rounded-md border border-[#d0d7de] bg-white px-2.5 py-1.5 text-xs hover:bg-[#f3f4f6] disabled:opacity-40"
+                className="flex items-center gap-1 rounded-md border border-line bg-canvas px-2.5 py-1.5 text-xs hover:bg-hover disabled:opacity-40"
               >
                 <ChevronLeft size={12} />
                 {t("workflow.prevPage")}
               </button>
-              <span className="text-xs text-[#57606a]">
+              <span className="text-xs text-fg-muted">
                 {t("workflow.pageInfo", { current: page + 1, totalPages })}
               </span>
               <button
                 type="button"
                 disabled={page + 1 >= totalPages || refreshing}
                 onClick={() => void loadPage(page + 1)}
-                className="flex items-center gap-1 rounded-md border border-[#d0d7de] bg-white px-2.5 py-1.5 text-xs hover:bg-[#f3f4f6] disabled:opacity-40"
+                className="flex items-center gap-1 rounded-md border border-line bg-canvas px-2.5 py-1.5 text-xs hover:bg-hover disabled:opacity-40"
               >
                 {t("workflow.nextPage")}
                 <ChevronRight size={12} />
@@ -314,17 +314,17 @@ function Header({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="flex items-start justify-between rounded-md border border-[#d0d7de] bg-white p-4">
+    <div className="flex items-start justify-between rounded-md border border-line bg-canvas p-4">
       <div>
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold">{name}</h1>
-          {workflow && <span className="rounded bg-[#eaeef2] px-2 py-0.5 text-xs text-[#57606a]">{workflow.project}</span>}
+          {workflow && <span className="rounded bg-chip px-2 py-0.5 text-xs text-fg-muted">{workflow.project}</span>}
         </div>
         {workflow && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {workflow.jobs.map((job) => (
-              <span key={job.key} className="rounded bg-[#f6f8fa] px-2 py-0.5 text-xs text-[#57606a] ring-1 ring-[#d0d7de]">
-                <span className="font-medium text-[#24292f]">{job.key}</span> · {t("workflow.stepsCount", { count: job.steps })} · {job.runsOn}
+              <span key={job.key} className="rounded bg-canvas-subtle px-2 py-0.5 text-xs text-fg-muted ring-1 ring-line">
+                <span className="font-medium text-fg">{job.key}</span> · {t("workflow.stepsCount", { count: job.steps })} · {job.runsOn}
                 {job.needs.length > 0 && ` ← ${job.needs.join(", ")}`}
               </span>
             ))}
@@ -336,7 +336,7 @@ function Header({
           type="button"
           disabled={false}
           onClick={onTrigger}
-          className="flex items-center gap-1.5 rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-md bg-success-btn px-3 py-1.5 text-sm font-medium text-white hover:bg-success-btn-hover disabled:opacity-50"
         >
           <Play size={13} />
           {t("common.run")}
@@ -344,16 +344,16 @@ function Header({
         <button
           type="button"
           onClick={onHistory}
-          className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] px-3 py-1.5 text-sm hover:bg-[#f3f4f6]"
+          className="flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm hover:bg-hover"
         >
           <History size={13} />
           {t("workflow.configHistory")}
         </button>
-        {!enabled && <span className="rounded bg-[#8c959f] px-2 py-0.5 text-xs text-white">{t("common.disabled")}</span>}
+        {!enabled && <span className="rounded bg-dim px-2 py-0.5 text-xs text-white">{t("common.disabled")}</span>}
         <Link
           to="/jobs/$name/edit"
           params={{ name }}
-          className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] px-3 py-1.5 text-sm hover:bg-[#f3f4f6]"
+          className="flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm hover:bg-hover"
         >
           <Pencil size={13} />
           {t("common.edit")}
@@ -361,7 +361,7 @@ function Header({
         <Link
           to="/jobs/new"
           search={{ from: name }}
-          className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] px-3 py-1.5 text-sm hover:bg-[#f3f4f6]"
+          className="flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm hover:bg-hover"
         >
           <Copy size={13} />
           {t("common.copy")}
@@ -369,7 +369,7 @@ function Header({
         <button
           type="button"
           onClick={onDelete}
-          className="flex items-center gap-1.5 rounded-md border border-[#d0d7de] px-3 py-1.5 text-sm text-[#cf222e] hover:bg-[#ffebe9]"
+          className="flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm text-danger hover:bg-danger-subtle"
         >
           <Trash2 size={13} />
           {t("common.delete")}

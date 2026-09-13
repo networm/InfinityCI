@@ -41,15 +41,15 @@ function ProjectsSection() {
 
   return (
     <section>
-      <h2 className="mb-2 text-sm font-medium text-[#57606a]">{t("admin.projectsTitle")}</h2>
-      <div className="rounded-md border border-[#d0d7de] bg-white p-4">
+      <h2 className="mb-2 text-sm font-medium text-fg-muted">{t("admin.projectsTitle")}</h2>
+      <div className="rounded-md border border-line bg-canvas p-4">
         <div className="mb-3 flex items-end gap-3">
           <label className="text-sm">
-            <span className="mb-1 block text-xs font-medium text-[#57606a]">{t("admin.newProjectName")}</span>
+            <span className="mb-1 block text-xs font-medium text-fg-muted">{t("admin.newProjectName")}</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-56 rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da]"
+              className="w-56 rounded-md border border-line px-2.5 py-1.5 text-sm outline-none focus:border-link"
             />
           </label>
           <button
@@ -64,21 +64,21 @@ function ProjectsSection() {
                 setMessage(e instanceof Error ? e.message : String(e));
               }
             }}
-            className="flex items-center gap-1.5 rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-md bg-success-btn px-3 py-1.5 text-sm font-medium text-white hover:bg-success-btn-hover disabled:opacity-50"
           >
             <Plus size={14} />
             {t("admin.createProject")}
           </button>
         </div>
         {projects.length === 0 ? (
-          <div className="text-sm text-[#57606a]">{t("admin.noProjects")}</div>
+          <div className="text-sm text-fg-muted">{t("admin.noProjects")}</div>
         ) : (
           <table className="w-full text-sm">
             <tbody>
               {projects.map((project) => (
-                <tr key={project.id} className="border-t border-[#eaeef2]">
+                <tr key={project.id} className="border-t border-line-muted">
                   <td className="py-2 font-medium">{project.name}</td>
-                  <td className="py-2 text-[#57606a]">{project.description}</td>
+                  <td className="py-2 text-fg-muted">{project.description}</td>
                   <td className="py-2 text-right">
                     <button
                       type="button"
@@ -91,7 +91,7 @@ function ProjectsSection() {
                           setMessage(e instanceof Error ? e.message : String(e));
                         }
                       }}
-                      className="inline-flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs text-[#cf222e] hover:bg-[#ffebe9]"
+                      className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs text-danger hover:bg-danger-subtle"
                     >
                       <Trash2 size={12} />
                       {t("common.delete")}
@@ -145,45 +145,45 @@ function UsersSection() {
 
   return (
     <section>
-      <h2 className="mb-2 text-sm font-medium text-[#57606a]">{t("admin.usersTitle")}</h2>
+      <h2 className="mb-2 text-sm font-medium text-fg-muted">{t("admin.usersTitle")}</h2>
       {message && (
-        <div className="mb-3 rounded-md border border-[#ffc1bc] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">{message}</div>
+        <div className="mb-3 rounded-md border border-danger-line bg-danger-subtle px-3 py-2 text-sm text-danger">{message}</div>
       )}
 
       {creating ? (
-        <div className="mb-4 rounded-md border border-[#d0d7de] bg-white p-4">
+        <div className="mb-4 rounded-md border border-line bg-canvas p-4">
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium text-[#57606a]">{t("columns.username")}</span>
+              <span className="mb-1 block text-xs font-medium text-fg-muted">{t("columns.username")}</span>
               <input
                 value={form.username}
                 onChange={(e) => setForm({ ...form, username: e.target.value })}
-                className="w-full rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da]"
+                className="w-full rounded-md border border-line px-2.5 py-1.5 text-sm outline-none focus:border-link"
               />
             </label>
             <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium text-[#57606a]">{t("columns.displayName")}</span>
+              <span className="mb-1 block text-xs font-medium text-fg-muted">{t("columns.displayName")}</span>
               <input
                 value={form.displayName}
                 onChange={(e) => setForm({ ...form, displayName: e.target.value })}
-                className="w-full rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da]"
+                className="w-full rounded-md border border-line px-2.5 py-1.5 text-sm outline-none focus:border-link"
               />
             </label>
             <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium text-[#57606a]">{t("login.password")}</span>
+              <span className="mb-1 block text-xs font-medium text-fg-muted">{t("login.password")}</span>
               <input
                 type="password"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
-                className="w-full rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da]"
+                className="w-full rounded-md border border-line px-2.5 py-1.5 text-sm outline-none focus:border-link"
               />
             </label>
             <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium text-[#57606a]">{t("columns.role")}</span>
+              <span className="mb-1 block text-xs font-medium text-fg-muted">{t("columns.role")}</span>
               <select
                 value={form.role}
                 onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })}
-                className="w-full rounded-md border border-[#d0d7de] px-2.5 py-1.5 text-sm outline-none focus:border-[#0969da]"
+                className="w-full rounded-md border border-line px-2.5 py-1.5 text-sm outline-none focus:border-link"
               >
                 <option value="User">{t("admin.roleUser")}</option>
                 <option value="Admin">{t("admin.roleAdmin")}</option>
@@ -192,7 +192,7 @@ function UsersSection() {
             </label>
           </div>
           <div className="mt-3">
-            <span className="mb-1 block text-xs font-medium text-[#57606a]">{t("columns.visibleProjects")}</span>
+            <span className="mb-1 block text-xs font-medium text-fg-muted">{t("columns.visibleProjects")}</span>
             <div className="flex flex-wrap gap-3">
               {projects.map((project) => (
                 <label key={project.id} className="flex items-center gap-1.5 text-sm">
@@ -220,14 +220,14 @@ function UsersSection() {
                   setMessage(e instanceof Error ? e.message : String(e));
                 }
               }}
-              className="rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b] disabled:opacity-50"
+              className="rounded-md bg-success-btn px-3 py-1.5 text-sm font-medium text-white hover:bg-success-btn-hover disabled:opacity-50"
             >
               {t("admin.createUser")}
             </button>
             <button
               type="button"
               onClick={() => setCreating(false)}
-              className="rounded-md border border-[#d0d7de] px-3 py-1.5 text-sm hover:bg-[#f6f8fa]"
+              className="rounded-md border border-line px-3 py-1.5 text-sm hover:bg-canvas-subtle"
             >
               {t("common.cancel")}
             </button>
@@ -237,17 +237,17 @@ function UsersSection() {
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="mb-3 flex items-center gap-1.5 rounded-md bg-[#2da44e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2c974b]"
+          className="mb-3 flex items-center gap-1.5 rounded-md bg-success-btn px-3 py-1.5 text-sm font-medium text-white hover:bg-success-btn-hover"
         >
           <Plus size={14} />
           {t("admin.newUser")}
         </button>
       )}
 
-      <div className="overflow-hidden rounded-md border border-[#d0d7de] bg-white">
+      <div className="overflow-hidden rounded-md border border-line bg-canvas">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[#d0d7de] bg-[#f6f8fa] text-left text-xs text-[#57606a]">
+            <tr className="border-b border-line bg-canvas-subtle text-left text-xs text-fg-muted">
               <th className="px-4 py-2">{t("columns.username")}</th>
               <th className="px-4 py-2">{t("columns.displayName")}</th>
               <th className="px-4 py-2">{t("columns.role")}</th>
@@ -257,16 +257,16 @@ function UsersSection() {
           </thead>
           <tbody>
             {users.map((user) => (
-              <tr key={user.id} className="border-b border-[#d8dee4] last:border-0">
+              <tr key={user.id} className="border-b border-line-muted last:border-0">
                 <td className="px-4 py-2 font-medium">
                   {user.username}
                   {user.hasPassword === false && (
-                    <span className="ml-1.5 rounded bg-[#ddf4ff] px-1.5 py-0.5 text-xs font-normal text-[#0969da]">
+                    <span className="ml-1.5 rounded bg-link-subtle px-1.5 py-0.5 text-xs font-normal text-link">
                       LDAP
                     </span>
                   )}
                 </td>
-                <td className="px-4 py-2 text-[#57606a]">{user.displayName ?? "—"}</td>
+                <td className="px-4 py-2 text-fg-muted">{user.displayName ?? "—"}</td>
                 <td className="px-4 py-2">
                   <select
                     value={user.role}
@@ -278,7 +278,7 @@ function UsersSection() {
                         setMessage(err instanceof Error ? err.message : String(err));
                       }
                     }}
-                    className="rounded border border-[#d0d7de] px-2 py-1 text-xs outline-none focus:border-[#0969da]"
+                    className="rounded border border-line px-2 py-1 text-xs outline-none focus:border-link"
                   >
                     <option value="User">{t("admin.roleUser")}</option>
                     <option value="Admin">{t("admin.roleAdmin")}</option>
@@ -288,11 +288,11 @@ function UsersSection() {
                 <td className="px-4 py-2">
                   <div className="flex flex-wrap gap-1">
                     {user.projects.map((project) => (
-                      <span key={project.projectId} className="rounded bg-[#eaeef2] px-1.5 py-0.5 text-xs">
+                      <span key={project.projectId} className="rounded bg-chip px-1.5 py-0.5 text-xs">
                         {project.name}
                       </span>
                     ))}
-                    {user.projects.length === 0 && <span className="text-xs text-[#57606a]">{t("admin.allOrNone")}</span>}
+                    {user.projects.length === 0 && <span className="text-xs text-fg-muted">{t("admin.allOrNone")}</span>}
                   </div>
                   <div className="mt-1 flex flex-wrap gap-1">
                     {projects
@@ -310,7 +310,7 @@ function UsersSection() {
                               setMessage(err instanceof Error ? err.message : String(err));
                             }
                           }}
-                          className="rounded border border-dashed border-[#d0d7de] px-1.5 py-0.5 text-xs text-[#0969da] hover:bg-[#ddf4ff]"
+                          className="rounded border border-dashed border-line px-1.5 py-0.5 text-xs text-link hover:bg-link-subtle"
                         >
                           + {project.name}
                         </button>
@@ -329,7 +329,7 @@ function UsersSection() {
                               setMessage(err instanceof Error ? err.message : String(err));
                             }
                           }}
-                          className="rounded border border-dashed border-[#ffc1bc] px-1.5 py-0.5 text-xs text-[#cf222e] hover:bg-[#ffebe9]"
+                          className="rounded border border-dashed border-danger-line px-1.5 py-0.5 text-xs text-danger hover:bg-danger-subtle"
                         >
                           − {projects.find((p) => p.id === up.projectId)?.name ?? up.projectId}
                         </button>
@@ -348,7 +348,7 @@ function UsersSection() {
                           setMessage(err instanceof Error ? err.message : String(err));
                         }
                       }}
-                      className="inline-flex items-center gap-1 rounded-md border border-[#d0d7de] px-2 py-1 text-xs text-[#cf222e] hover:bg-[#ffebe9]"
+                      className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs text-danger hover:bg-danger-subtle"
                     >
                       <Trash2 size={12} />
                       {t("common.delete")}
