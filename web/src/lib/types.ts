@@ -206,9 +206,17 @@ export interface EditorJob {
   steps: EditorStep[];
 }
 
+export interface EditorParam {
+  name: string;
+  default: string;
+  required: boolean;
+  description: string;
+}
+
 export interface EditorWorkflow {
   name: string;
   project: string;
   scm: EditorScm | null;
+  params: EditorParam[];
   jobs: EditorJob[];
 }

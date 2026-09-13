@@ -6,13 +6,25 @@ import { useTranslation } from "react-i18next";
 import i18next from "i18next";
 
 import { api } from "@/lib/api";
-import type { EditorJob, EditorScm, EditorStep, EditorWorkflow } from "@/lib/types";
+import type { EditorJob, EditorParam, EditorScm, EditorStep, EditorWorkflow } from "@/lib/types";
 
 function modelToYaml(workflow: EditorWorkflow): string {
   const doc: Record<string, unknown> = {
     name: workflow.name.trim(),
     project: workflow.project.trim() || "Default",
   };
+  if (workflow.params.length > 0) {
+    const params: Record<string, unknown> = {};
+    for (const param of workflow.params) {
+      const paramName = param.name.trim();
+      if (!paramName) continue;
+      const spec: Record<string, unknown> = { default: param.default };
+      if (param.required) spec.required = true;
+      if (param.description.trim()) spec.description = param.description.trim();
+      params[paramName] = spec;
+    }
+    if (Object.keys(params).length > 0) doc.params = params;
+  }
   if (workflow.scm && workflow.scm.url.trim()) {
     const scm: Record<string, unknown> = { url: workflow.scm.url.trim() };
     if (workflow.scm.branch.trim()) scm.branch = workflow.scm.branch.trim();
@@ -41,10 +53,23 @@ function yamlToModel(text: string): EditorWorkflow {
   const doc = yamlLoad(text) as {
     name?: string;
     project?: string;
+    params?: Record<string, unknown>;
     jobs?: Record<string, { runs_on?: string; steps?: { name?: string; command?: string; shell?: string; continue_on_error?: boolean }[] }>;
   };
   if (!doc || typeof doc !== "object") throw new Error(i18next.t("editor.invalidYaml"));
   if (!doc.name) throw new Error(i18next.t("editor.missingName"));
+  const params: EditorParam[] = Object.entries(doc.params ?? {}).map(([name, value]) => {
+    if (value !== null && typeof value === "object") {
+      const spec = value as Record<string, unknown>;
+      return {
+        name,
+        default: spec.default == null ? "" : String(spec.default),
+        required: String(spec.required).toLowerCase() === "true",
+        description: spec.description == null ? "" : String(spec.description),
+      };
+    }
+    return { name, default: value == null ? "" : String(value), required: false, description: "" };
+  });
   const jobs: EditorJob[] = Object.entries(doc.jobs ?? {}).map(([key, job]) => ({
     key,
     runsOn: job?.runs_on ?? "local",
@@ -59,16 +84,16 @@ function yamlToModel(text: string): EditorWorkflow {
   const scm: EditorScm | null = scmDoc
     ? { url: scmDoc.url ?? "", branch: scmDoc.branch ?? "", ref: scmDoc.ref ?? "", credentials: scmDoc.credentials ?? "" }
     : null;
-  return { name: doc.name, project: doc.project ?? "Default", scm, jobs };
+  return { name: doc.name, project: doc.project ?? "Default", scm, params, jobs };
 }
 
 function emptyStep(): EditorStep {
   return { name: "", command: "echo hello", shell: "", continueOnError: false };
 }
 
-// The form model covers name/project/scm/jobs only; anything else (workflow
-// params, job/step env) would be dropped by a form round-trip, so copies of
-// such workflows must stay in YAML mode where the text is preserved verbatim.
+// The form model covers name/project/params/scm/jobs; anything else (job/step
+// env) would be dropped by a form round-trip, so copies of such workflows must
+// stay in YAML mode where the text is preserved verbatim.
 function formRepresentable(text: string): boolean {
   let doc: Record<string, unknown>;
   try {
@@ -77,11 +102,11 @@ function formRepresentable(text: string): boolean {
     return false;
   }
   const hasEnv = (value: unknown) => Boolean(value && typeof value === "object" && "env" in (value as object));
-  if ("params" in doc || hasEnv(doc)) return false;
+  if (hasEnv(doc)) return false;
   const jobs = Object.values((doc.jobs as Record<string, unknown>) ?? {});
   return jobs.every((job) => {
     if (!job || typeof job !== "object" || hasEnv(job)) return false;
-    return (((job as { steps?: unknown[] }).steps) ?? []).every((step) => !hasEnv(step));
+    return ((job.steps as unknown[] | undefined) ?? []).every((step) => !hasEnv(step));
   });
 }
 
@@ -100,6 +125,7 @@ export function JobEditorPage() {
     name: "",
     project: "Default",
     scm: null,
+    params: [],
     jobs: [{ key: "build", runsOn: "local", steps: [emptyStep()] }],
   });
   const [mode, setMode] = useState<"form" | "yaml">("form");
@@ -288,6 +314,91 @@ export function JobEditorPage() {
                     className="w-full rounded-md border border-line px-2 py-1 text-xs outline-none focus:border-link"
                   />
                 </label>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-md border border-line bg-canvas p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <div>
+                <span className="text-sm font-medium">{t("editor.paramsTitle")}</span>
+                <p className="mt-0.5 text-xs text-fg-muted">{t("editor.paramsHint")}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setWorkflow({
+                    ...workflow,
+                    params: [...workflow.params, { name: "", default: "", required: false, description: "" }],
+                  })
+                }
+                className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs hover:bg-hover"
+              >
+                <Plus size={12} />
+                {t("editor.addParam")}
+              </button>
+            </div>
+            {workflow.params.length === 0 ? (
+              <div className="text-xs text-fg-muted">{t("editor.noParams")}</div>
+            ) : (
+              <div className="space-y-1.5">
+                <div className="flex gap-2 text-xs text-fg-muted">
+                  <span className="w-40">{t("editor.paramName")}</span>
+                  <span className="w-40">{t("editor.paramDefault")}</span>
+                  <span className="w-16 text-center">{t("editor.paramRequired")}</span>
+                  <span className="flex-1">{t("editor.paramDescription")}</span>
+                  <span className="w-5" />
+                </div>
+                {workflow.params.map((param, paramIndex) => (
+                  <div key={paramIndex} className="flex items-center gap-2">
+                    <input
+                      value={param.name}
+                      placeholder="VERSION"
+                      onChange={(e) => {
+                        const params = [...workflow.params];
+                        params[paramIndex] = { ...param, name: e.target.value };
+                        setWorkflow({ ...workflow, params });
+                      }}
+                      className="w-40 rounded-md border border-line px-2 py-1 font-mono text-xs outline-none focus:border-link"
+                    />
+                    <input
+                      value={param.default}
+                      onChange={(e) => {
+                        const params = [...workflow.params];
+                        params[paramIndex] = { ...param, default: e.target.value };
+                        setWorkflow({ ...workflow, params });
+                      }}
+                      className="w-40 rounded-md border border-line px-2 py-1 text-xs outline-none focus:border-link"
+                    />
+                    <div className="w-16 text-center">
+                      <input
+                        type="checkbox"
+                        checked={param.required}
+                        onChange={(e) => {
+                          const params = [...workflow.params];
+                          params[paramIndex] = { ...param, required: e.target.checked };
+                          setWorkflow({ ...workflow, params });
+                        }}
+                      />
+                    </div>
+                    <input
+                      value={param.description}
+                      onChange={(e) => {
+                        const params = [...workflow.params];
+                        params[paramIndex] = { ...param, description: e.target.value };
+                        setWorkflow({ ...workflow, params });
+                      }}
+                      className="min-w-0 flex-1 rounded-md border border-line px-2 py-1 text-xs outline-none focus:border-link"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setWorkflow({ ...workflow, params: workflow.params.filter((_, i) => i !== paramIndex) })}
+                      className="w-5 shrink-0 text-danger hover:opacity-70"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
