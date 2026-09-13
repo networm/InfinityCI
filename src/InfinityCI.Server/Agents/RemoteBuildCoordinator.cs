@@ -3,6 +3,7 @@ using InfinityCI.Grpc;
 using InfinityCI.Server.Jobs;
 using InfinityCI.Server.Runs;
 using InfinityCI.Server.Storage;
+using Microsoft.EntityFrameworkCore;
 
 namespace InfinityCI.Server.Agents;
 
@@ -30,9 +31,23 @@ public sealed class RemoteBuildCoordinator(
         {
             using var scope = scopeFactory.CreateScope();
             var repo = scope.ServiceProvider.GetRequiredService<RunRepository>();
-            var jobRun = await repo.GetJobRunAsync(pending.JobRunId);
-            if (jobRun is not { Status: JobRunStatus.Queued })
+            var db = scope.ServiceProvider.GetRequiredService<CiDbContext>();
+
+            // The aggregator marks agent dispatches Running before enqueueing
+            // (double-dispatch guard), so claim atomically like the local worker:
+            // a conditional UPDATE that also closes cancel/finalize races.
+            var claimed = await db.JobRuns
+                .Where(j => j.Id == pending.JobRunId
+                            && (j.Status == JobRunStatus.Queued || j.Status == JobRunStatus.Running))
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(j => j.Status, JobRunStatus.Running)
+                    .SetProperty(j => j.StartedAt, DateTimeOffset.UtcNow));
+            if (claimed == 0)
                 continue; // cancelled or finalized while waiting in the queue
+
+            var jobRun = await repo.GetJobRunAsync(pending.JobRunId);
+            if (jobRun is null)
+                continue;
 
             if (pending.RequiredLabel is { } label
                 && !agent.Labels.Contains(label, StringComparer.OrdinalIgnoreCase))
