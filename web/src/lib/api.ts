@@ -144,6 +144,14 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ enabled }),
     }),
+  updateAgentConfig: (
+    id: string,
+    payload: { maxConcurrentBuilds: number; labels: string[]; env: Record<string, string> },
+  ) =>
+    request<unknown>(`/api/agents/${encodeURIComponent(id)}/config`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
   deleteAgent: (id: string) => request<unknown>(`/api/agents/${encodeURIComponent(id)}`, { method: "DELETE" }),
   enrollments: () => request<AgentEnrollment[]>("/api/agents/enrollments"),
   createEnrollment: (name: string, labels: string[], maxConcurrentBuilds: number) =>

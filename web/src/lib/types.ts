@@ -175,6 +175,7 @@ export interface EnrolledAgent {
   labels: string[];
   maxConcurrentBuilds: number;
   enabled: boolean;
+  environment: Record<string, string>;
   enrolledAt: string;
   lastSeenUtc: string | null;
   online: boolean;

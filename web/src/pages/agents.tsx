@@ -3,15 +3,20 @@ import type { HubConnection } from "@microsoft/signalr";
 import { Copy, KeyRound, Power, Trash2 } from "lucide-react";
 
 import { StatusIcon } from "@/components/status-icon";
+import { AgentConfigDialog } from "@/components/agent-config-dialog";
 import { api } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { getCiHub } from "@/lib/signalr";
 import { useTranslation } from "react-i18next";
 import type { CredentialInfo } from "@/lib/types";
-import type { AgentInfo } from "@/lib/types";
+import type { AgentInfo, EnrolledAgent } from "@/lib/types";
+import { useMe } from "@/lib/me-context";
 
 export function AgentsPage() {
   const { t } = useTranslation();
+  const { me } = useMe();
+  const isAdmin = me?.role === "Admin" || me?.role === "SuperAdmin";
+  const [configFor, setConfigFor] = useState<EnrolledAgent | null>(null);
   const [live, setLive] = useState<AgentInfo[]>([]);
   const [enrolled, setEnrolled] = useState<Awaited<ReturnType<typeof api.enrolledAgents>>>([]);
   const [enrollments, setEnrollments] = useState<Awaited<ReturnType<typeof api.enrollments>>>([]);
@@ -282,6 +287,15 @@ export function AgentsPage() {
                     <td className="px-4 py-2 text-fg-muted">{formatDateTime(agent.lastSeenUtc)}</td>
                     <td className="px-4 py-2">
                       <div className="flex items-center justify-end gap-2">
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setConfigFor(agent)}
+                            className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs hover:bg-hover"
+                          >
+                            {t("agents.config")}
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={async () => {
@@ -314,6 +328,15 @@ export function AgentsPage() {
           </div>
         )}
       </section>
+
+      {configFor && (
+        <AgentConfigDialog
+          agent={configFor}
+          onClose={() => setConfigFor(null)}
+          onSaved={() => void reload()}
+          onMessage={setMessage}
+        />
+      )}
     </div>
   );
 }

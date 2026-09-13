@@ -115,6 +115,25 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<CiDbContext>();
     db.Database.EnsureCreated();
 
+    // EnsureCreated never alters existing tables, so new columns on older
+    // databases are added by guarded migrations here.
+    var connection = db.Database.GetDbConnection();
+    await connection.OpenAsync();
+    await using (var command = connection.CreateCommand())
+    {
+        command.CommandText =
+            """
+            SELECT COUNT(*) FROM pragma_table_info('Agents') WHERE name = 'EnvironmentJson';
+            """;
+        var hasColumn = Convert.ToInt64(await command.ExecuteScalarAsync()) > 0;
+        if (!hasColumn)
+        {
+            command.CommandText = "ALTER TABLE Agents ADD COLUMN EnvironmentJson TEXT NOT NULL DEFAULT '{}'";
+            await command.ExecuteNonQueryAsync();
+            Log.Information("Migrated Agents table: added EnvironmentJson column");
+        }
+    }
+
     if (!await db.Users.AnyAsync())
     {
         var defaultProject = new Project { Name = "Default", Description = "Default project" };

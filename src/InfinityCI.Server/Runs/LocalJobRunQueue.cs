@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using InfinityCI.Core;
 
@@ -31,7 +32,7 @@ public sealed class LocalJobRunQueue
         return false;
     }
 
-    public async IAsyncEnumerable<JobRun> ReadAllAsync(System.Threading.CancellationToken cancellationToken)
+    public async IAsyncEnumerable<JobRun> ReadAllAsync([EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await foreach (var jobRun in _channel.Reader.ReadAllAsync(cancellationToken))
         {

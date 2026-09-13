@@ -29,6 +29,7 @@ public record SaveWorkflowRequest(string Yaml);
 public record EnrollmentRequest(string Name, string[] Labels, int MaxConcurrentBuilds);
 public record RestoreRequest(string Sha);
 public record CredentialRequest(string Name, string Username, string Secret);
+public record AgentConfigRequest(int MaxConcurrentBuilds, string[]? Labels, Dictionary<string, string>? Env);
 public record FavoriteRequest(bool Favorite);
 public record EnabledToggleRequest(bool Enabled);
 public record NotifyWebhookRequest(string? Url);
@@ -544,10 +545,29 @@ public static class CiApi
                 labels = JsonSerializer.Deserialize<string[]>(a.LabelsJson) ?? [],
                 a.MaxConcurrentBuilds,
                 a.Enabled,
+                environment = JsonSerializer.Deserialize<Dictionary<string, string>>(a.EnvironmentJson) ?? [],
                 a.EnrolledAt,
                 a.LastSeenUtc,
                 online = registry.Get(a.Id)?.Online == true,
             }));
+        }).RequireAuthorization("Admins");
+
+        app.MapPut("/api/agents/{id}/config", async (string id, AgentConfigRequest request, CiDbContext db, AgentRegistry registry) =>
+        {
+            var record = await db.Agents.FindAsync([id]);
+            if (record is null) return Results.NotFound();
+
+            var labels = request.Labels ?? [];
+            var env = request.Env ?? new Dictionary<string, string>();
+            record.MaxConcurrentBuilds = Math.Max(1, request.MaxConcurrentBuilds);
+            record.LabelsJson = JsonSerializer.Serialize(labels);
+            record.EnvironmentJson = JsonSerializer.Serialize(env);
+            await db.SaveChangesAsync();
+
+            // A connected agent picks the change up immediately; offline ones
+            // read the record at their next registration.
+            registry.ApplyConfig(id, record.Name, labels, record.MaxConcurrentBuilds);
+            return Results.Ok(new { id, maxConcurrentBuilds = record.MaxConcurrentBuilds, labels, env });
         }).RequireAuthorization("Admins");
 
         app.MapPut("/api/agents/{id}/enabled", async (string id, EnabledRequest request, CiDbContext db, AgentRegistry registry) =>

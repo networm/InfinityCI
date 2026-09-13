@@ -116,7 +116,16 @@ public sealed class AgentHubService(
             }
             record.LastSeenUtc = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync();
-            return registry.Register(registration, responseStream);
+            // The UI-managed record is authoritative: local startup args for
+            // name, labels and concurrency never override an edited config.
+            return registry.Register(new AgentRegistration
+            {
+                AgentId = registration.AgentId,
+                AgentName = record.Name,
+                Version = registration.Version,
+                Labels = { System.Text.Json.JsonSerializer.Deserialize<string[]>(record.LabelsJson) ?? [] },
+                MaxConcurrentBuilds = record.MaxConcurrentBuilds,
+            }, responseStream);
         }
 
         // New agent: an unused one-time enrollment token is required.

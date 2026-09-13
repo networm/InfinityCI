@@ -164,6 +164,13 @@ public sealed class RemoteBuildRunner(
         CancellationToken ct, LineCursor cursor, int stepIndex)
     {
         var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // Agent-wide variables first (lowest priority) so workflow env, run
+        // parameters and step env can all override them.
+        var agentEnv = string.IsNullOrEmpty(assignment.EnvJson)
+            ? new Dictionary<string, string>()
+            : System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(assignment.EnvJson) ?? [];
+        foreach (var (key, value) in agentEnv)
+            env[key] = value;
         foreach (var (key, value) in job.Environment)
             env[key] = value;
         var runParams = string.IsNullOrEmpty(assignment.ParamsJson)

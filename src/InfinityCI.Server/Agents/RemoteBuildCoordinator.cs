@@ -93,6 +93,11 @@ public sealed class RemoteBuildCoordinator(
             registry.Assign(jobRun.Id, agent.Id);
             jobRun.AgentId = agent.Id;
 
+            // Agent-wide environment variables come from the agent's record and
+            // are exported with the lowest priority (workflow env can override).
+            var agentRecord = await db.Agents.AsNoTracking().FirstOrDefaultAsync(a => a.Id == agent.Id);
+            var agentEnvJson = agentRecord?.EnvironmentJson ?? "{}";
+
             // Resolve SCM + credentials master-side so agents never see the
             // credential store, only the resolved values for this assignment.
             InfinityCI.Grpc.JobAssignment assignment;
@@ -112,6 +117,7 @@ public sealed class RemoteBuildCoordinator(
                     ScmUsername = credential?.Username ?? "",
                     ScmPassword = credential?.Password ?? "",
                     ParamsJson = System.Text.Json.JsonSerializer.Serialize(runParams),
+                    EnvJson = agentEnvJson,
                 };
             }
             else
@@ -124,6 +130,7 @@ public sealed class RemoteBuildCoordinator(
                     WorkflowName = run.WorkflowName,
                     WorkflowYaml = rawYaml,
                     ParamsJson = System.Text.Json.JsonSerializer.Serialize(runParams),
+                    EnvJson = agentEnvJson,
                 };
             }
             var sent = await registry.TrySendAsync(agent.Id, new MasterToAgent { Assignment = assignment });

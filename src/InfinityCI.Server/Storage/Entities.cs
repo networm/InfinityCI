@@ -71,6 +71,10 @@ public sealed class AgentRecord
     public bool Enabled { get; set; } = true;
     public DateTimeOffset EnrolledAt { get; set; }
     public DateTimeOffset? LastSeenUtc { get; set; }
+
+    /// <summary>Agent-wide environment variables (name -> value) exported into every
+    /// step this agent runs; serialized JSON, maintained from the config UI.</summary>
+    public string EnvironmentJson { get; set; } = "{}";
 }
 
 /// <summary>One-time token an agent presents on registration.</summary>

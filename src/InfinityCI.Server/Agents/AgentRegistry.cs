@@ -22,7 +22,7 @@ public readonly record struct PendingJobRun(long JobRunId, string? RequiredLabel
 public sealed class AgentConnection
 {
     public required string Id { get; init; }
-    public required string Name { get; init; }
+    public required string Name { get; set; }   // mutable: live agent-config updates
     public string Version { get; set; } = "";
     public IReadOnlyList<string> Labels { get; set; } = [];
     public int MaxConcurrentBuilds { get; set; } = 1;
@@ -79,6 +79,17 @@ public sealed class AgentRegistry(ILogger<AgentRegistry> logger)
     {
         if (_agents.TryGetValue(agentId, out var agent))
             agent.LastSeenUtc = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>Pushes an edited agent config onto a connected agent immediately;
+    /// offline agents pick it up at their next registration.</summary>
+    public void ApplyConfig(string agentId, string name, string[] labels, int maxConcurrentBuilds)
+    {
+        if (!_agents.TryGetValue(agentId, out var agent))
+            return;
+        agent.Name = name;
+        agent.Labels = labels;
+        agent.MaxConcurrentBuilds = Math.Max(1, maxConcurrentBuilds);
     }
 
     public void UpdateStats(string agentId, AgentStats stats)
