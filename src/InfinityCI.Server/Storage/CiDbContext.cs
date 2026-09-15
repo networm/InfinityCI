@@ -12,6 +12,7 @@ public sealed class CiDbContext(DbContextOptions<CiDbContext> options) : DbConte
     public DbSet<UserFavorite> UserFavorites => Set<UserFavorite>();
     public DbSet<StoredCredential> StoredCredentials => Set<StoredCredential>();
     public DbSet<WorkflowState> WorkflowStates => Set<WorkflowState>();
+    public DbSet<VersionInfo> VersionInfo => Set<VersionInfo>();
     public DbSet<Run> Runs => Set<Run>();
     public DbSet<JobRun> JobRuns => Set<JobRun>();
     public DbSet<AgentRecord> Agents => Set<AgentRecord>();
@@ -75,6 +76,7 @@ public sealed class CiDbContext(DbContextOptions<CiDbContext> options) : DbConte
             e.Property(x => x.ParamsJson).IsRequired();
             e.Ignore(x => x.Params);
             e.HasIndex(x => new { x.Project, x.Id });
+            e.HasIndex(x => new { x.WorkflowName, x.RunNumber }).IsUnique();
             ConfigureDates(e.Property(x => x.CreatedAt), e.Property(x => x.StartedAt), e.Property(x => x.FinishedAt));
         });
 

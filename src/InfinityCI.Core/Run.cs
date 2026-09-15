@@ -28,6 +28,10 @@ public enum JobRunStatus
 public sealed class Run
 {
     public long Id { get; set; }
+
+    /// <summary>Run number, unique per workflow and incrementing from 1 (the
+    /// public identity used in URLs); the internal Id keys JobRuns.</summary>
+    public int RunNumber { get; set; }
     public required string WorkflowName { get; set; }
     public required string Project { get; set; }
     public string TriggeredBy { get; set; } = "";

@@ -15,12 +15,24 @@ public sealed class RunRepository(CiDbContext db)
 
     // -- runs --
 
+    /// <summary>
+    /// Inserts the run with its per-workflow sequence number (MAX+1 inside a
+    /// serializable transaction; the (WorkflowName, RunNumber) unique index
+    /// guarantees no duplicates even under concurrent triggers).
+    /// </summary>
     public async Task<Run> AddRunAsync(Run run, CancellationToken ct = default)
     {
         run.Version = 1;
         run.ParamsJson = JsonSerializer.Serialize(run.Params);
+        await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        var max = await db.Runs.AsNoTracking()
+            .Where(r => r.WorkflowName == run.WorkflowName)
+            .Select(r => (int?)r.RunNumber)
+            .MaxAsync(ct) ?? 0;
+        run.RunNumber = max + 1;
         db.Runs.Add(run);
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
         return run;
     }
 
@@ -34,6 +46,16 @@ public sealed class RunRepository(CiDbContext db)
     public async Task<Run?> GetRunAsync(long id, CancellationToken ct = default)
     {
         var run = await db.Runs.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (run is not null)
+            run.Params = JsonSerializer.Deserialize<Dictionary<string, string>>(run.ParamsJson) ?? new(StringComparer.OrdinalIgnoreCase);
+        return run;
+    }
+
+    /// <summary>Looks a run up by its public identity: workflow + per-workflow number.</summary>
+    public async Task<Run?> GetRunAsync(string workflowName, int runNumber, CancellationToken ct = default)
+    {
+        var run = await db.Runs.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.WorkflowName == workflowName && x.RunNumber == runNumber, ct);
         if (run is not null)
             run.Params = JsonSerializer.Deserialize<Dictionary<string, string>>(run.ParamsJson) ?? new(StringComparer.OrdinalIgnoreCase);
         return run;

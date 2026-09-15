@@ -441,6 +441,44 @@ public static class CiApi
                 items = runs.Select(r => new RunsPageItem(r, jobs.GetValueOrDefault(r.Id, []))),
             });
         }).RequireAuthorization();
+
+        app.MapGet("/api/jobs/{name}/runs/{runNumber:int}", async (string name, int runNumber, RunRepository repo) =>
+        {
+            var run = await repo.GetRunAsync(name, runNumber);
+            if (run is null) return Results.NotFound();
+            return Results.Ok(new RunsPageItem(run, await repo.GetJobRunsAsync(run.Id)));
+        }).RequireAuthorization();
+
+        app.MapPost("/api/jobs/{name}/runs/{runNumber:int}/cancel", async (string name, int runNumber, RunRepository repo, RunQueueService queue) =>
+        {
+            var run = await repo.GetRunAsync(name, runNumber);
+            if (run is null) return Results.NotFound();
+            return Results.Ok(new { cancelled = await queue.TryCancelRunAsync(run.Id) });
+        }).RequireAuthorization();
+
+        app.MapGet("/api/jobs/{name}/runs/{runNumber:int}/logs/{jobKey}", async (string name, int runNumber, string jobKey, JobLogStore logs, RunRepository repo, long afterLine = 0, int maxLines = 20_000) =>
+        {
+            var run = await repo.GetRunAsync(name, runNumber);
+            if (run is null) return Results.NotFound();
+            var lines = await logs.ReadAfterAsync(run.Id, jobKey, afterLine, maxLines);
+            var next = lines.Count > 0 ? lines[^1].Line + 1 : afterLine;
+            return Results.Ok(new LogPage(run.Id, jobKey, next, lines));
+        }).RequireAuthorization();
+
+        app.MapGet("/api/jobs/{name}/runs/{runNumber:int}/logs/{jobKey}/download", async (string name, int runNumber, string jobKey, string? format, JobLogStore logs, RunRepository repo, HttpContext http) =>
+        {
+            var run = await repo.GetRunAsync(name, runNumber);
+            if (run is null) return Results.NotFound();
+            var lines = await logs.ReadAfterAsync(run.Id, jobKey, 0);
+            var timestamped = string.Equals(format, "timestamped", StringComparison.OrdinalIgnoreCase);
+            var content = string.Join("\n", lines.Select(l => timestamped
+                ? $"{DateTimeOffset.Parse(l.TimestampUtc).ToLocalTime():yyyy-MM-dd HH:mm:ss.fff}  {l.Text}"
+                : l.Text)) + "\n";
+            var suffix = timestamped ? ".timestamped" : "";
+            var fileName = $"{name}-{runNumber}-{jobKey}{suffix}.log";
+            http.Response.Headers.ContentDisposition = $"attachment; filename=\"{fileName}\"";
+            return Results.Text(content, "text/plain; charset=utf-8", System.Text.Encoding.UTF8);
+        }).RequireAuthorization();
     }
 
     private static void MapRuns(IEndpointRouteBuilder app)

@@ -10,6 +10,7 @@ using InfinityCI.Server.Notifications;
 using InfinityCI.Server.Realtime;
 using InfinityCI.Server.Runs;
 using InfinityCI.Server.Storage;
+using static InfinityCI.Server.Storage.DbMigrator;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -108,12 +109,12 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<RunQueueService>()
 
 var app = builder.Build();
 
-// Schema-first for now; EF migrations arrive later in the project. Seed the
-// first SuperAdmin and the Default project on a fresh database.
+// Versioned schema migrations: fresh databases are created at the latest
+// version, existing ones upgraded in place — history is never wiped.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<CiDbContext>();
-    db.Database.EnsureCreated();
+    DbMigrator.Migrate(db);
 
     // EnsureCreated never alters existing tables, so new columns on older
     // databases are added by guarded migrations here.

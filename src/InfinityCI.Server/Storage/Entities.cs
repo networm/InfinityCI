@@ -40,6 +40,14 @@ public sealed class UserFavorite
     public required string WorkflowName { get; set; }
 }
 
+/// <summary>Single-row marker of the current database schema version.</summary>
+public sealed class VersionInfo
+{
+    public int Id { get; set; }
+    public int Version { get; set; }
+    public DateTimeOffset AppliedUtc { get; set; }
+}
+
 /// <summary>Runtime state of a workflow (enablement, webhook, notifications),
 /// kept out of the config Git repo since these are operational toggles.</summary>
 public sealed class WorkflowState
