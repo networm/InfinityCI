@@ -49,6 +49,8 @@ export interface WorkflowParam {
 
 export interface Run {
   id: number;
+  /** Per-workflow sequence number (public identity used in URLs). */
+  runNumber: number;
   workflowName: string;
   project: string;
   triggeredBy: string;
@@ -135,6 +137,7 @@ export interface ProjectInfo {
 
 /** A job run waiting in the dispatch queue (local executor or agent pull). */
 export interface QueueItemInfo {
+  runNumber: number;
   jobRunId: number;
   runId: number;
   workflowName: string;

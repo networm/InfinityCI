@@ -96,12 +96,12 @@ export function QueuePage() {
                   <td className="px-3 py-2 text-xs font-medium text-fg-muted">#{index + 1}</td>
                   <td className="px-3 py-2">
                     <Link
-                      to="/runs/$runId"
-                      params={{ runId: String(item.runId) }}
+                      to="/runs/$workflow/$runNumber"
+                      params={{ workflow: item.workflowName, runNumber: String(item.runNumber) }}
                       className="hover:text-link hover:underline"
                     >
                       <span className="font-medium">{item.workflowName}</span>{" "}
-                      <span className="text-fg-muted">#{item.runId}</span>
+                      <span className="text-fg-muted">#{item.runNumber}</span>
                     </Link>
                   </td>
                   <td className="px-3 py-2 text-fg-muted">{item.jobKey}</td>

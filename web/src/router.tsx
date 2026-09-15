@@ -31,7 +31,7 @@ const indexRoute = createRoute({
 
 const runRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/runs/$runId",
+  path: "/runs/$workflow/$runNumber",
   component: BuildDetailPage,
 });
 

@@ -227,15 +227,24 @@ export function WorkflowDetailPage() {
                 {items.map((item) => (
                   <tr
                     key={item.run.id}
-                    onClick={() => navigate({ to: "/runs/$runId", params: { runId: String(item.run.id) } })}
+                    onClick={() =>
+                      navigate({
+                        to: "/runs/$workflow/$runNumber",
+                        params: { workflow: item.run.workflowName, runNumber: String(item.run.runNumber) },
+                      })
+                    }
                     className="cursor-pointer border-b border-line-muted last:border-0 hover:bg-canvas-subtle"
                   >
                     <td className="px-3 py-2">
                       <StatusIcon status={item.run.status} />
                     </td>
                     <td className="px-3 py-2">
-                      <Link to="/runs/$runId" params={{ runId: String(item.run.id) }} className="hover:text-link hover:underline">
-                        <span className="font-medium">#{item.run.id}</span>
+                      <Link
+                        to="/runs/$workflow/$runNumber"
+                        params={{ workflow: item.run.workflowName, runNumber: String(item.run.runNumber) }}
+                        className="hover:text-link hover:underline"
+                      >
+                        <span className="font-medium">#{item.run.runNumber}</span>
                       </Link>
                     </td>
                     <td className="px-3 py-2">

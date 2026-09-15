@@ -61,13 +61,19 @@ export const api = {
     request<{ total: number; items: RunsPageItem[] }>(
       `/api/jobs/${encodeURIComponent(name)}/runs?skip=${skip}&take=${take}`,
     ),
-  run: (id: number) => request<RunsPageItem>(`/api/runs/${id}`),
-  cancelRun: (id: number) =>
-    request<{ cancelled: boolean }>(`/api/runs/${id}/cancel`, { method: "POST" }),
+  run: (workflow: string, runNumber: number) =>
+    request<RunsPageItem>(`/api/jobs/${encodeURIComponent(workflow)}/runs/${runNumber}`),
+  cancelRun: (workflow: string, runNumber: number) =>
+    request<{ cancelled: boolean }>(
+      `/api/jobs/${encodeURIComponent(workflow)}/runs/${runNumber}/cancel`,
+      { method: "POST" },
+    ),
   retryRun: (id: number) => request<Run>(`/api/runs/${id}/retry`, { method: "POST" }),
-  runLogs: (id: number, jobKey: string, afterLine: number) =>
+  runLogDownloadUrl: (workflow: string, runNumber: number, jobKey: string, format: "raw" | "timestamped") =>
+    `/api/jobs/${encodeURIComponent(workflow)}/runs/${runNumber}/logs/${encodeURIComponent(jobKey)}/download?format=${format}`,
+  runLogs: (workflow: string, runNumber: number, jobKey: string, afterLine: number) =>
     request<{ runId: number; jobKey: string; nextLine: number; lines: LogLine[] }>(
-      `/api/runs/${id}/logs/${encodeURIComponent(jobKey)}?afterLine=${afterLine}`,
+      `/api/jobs/${encodeURIComponent(workflow)}/runs/${runNumber}/logs/${encodeURIComponent(jobKey)}?afterLine=${afterLine}`,
     ),
 
   // workflows (任务)

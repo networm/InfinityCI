@@ -109,7 +109,7 @@ export function TaskDashboard() {
 
   const trigger = (name: string) => {
     requestTrigger(name, paramDefs[name] ?? [], (run) => {
-      window.location.assign(`/runs/${run.id}`);
+      window.location.assign(`/runs/${encodeURIComponent(run.workflowName)}/${run.runNumber}`);
     });
   };
 
@@ -254,8 +254,12 @@ function WorkflowRow({
       <div className="ml-auto hidden shrink-0 items-center gap-2 text-xs text-fg-muted lg:flex">
         {item.lastRun ? (
           <>
-            <Link to="/runs/$runId" params={{ runId: String(item.lastRun.id) }} className="hover:text-link hover:underline">
-              #{item.lastRun.id}
+            <Link
+              to="/runs/$workflow/$runNumber"
+              params={{ workflow: item.name, runNumber: String(item.lastRun.runNumber) }}
+              className="hover:text-link hover:underline"
+            >
+              #{item.lastRun.runNumber}
             </Link>
             <span>{lastStatus && statusLabel(lastStatus)}</span>
             <span>{formatDuration(item.lastRun.startedAt, item.lastRun.finishedAt)}</span>

@@ -54,7 +54,7 @@ export function JobsPage() {
           <p className="mt-0.5 text-xs text-fg-muted">
             {t("jobs.cloneHint")}{" "}
             <code className="rounded bg-chip px-1.5 py-0.5 font-mono text-xs">
-              git clone http://用户:密码@host:5000/git/jobs
+              {"git clone http://用户:密码@host:5000/git/{任务名}"}
             </code>
           </p>
         </div>

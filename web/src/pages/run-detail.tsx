@@ -3,6 +3,7 @@ import { useParams } from "@tanstack/react-router";
 import type { HubConnection } from "@microsoft/signalr";
 import { Ban, ChevronDown, ChevronRight, Download, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Link } from "@tanstack/react-router";
 
 import { StatusIcon } from "@/components/status-icon";
 import { api } from "@/lib/api";
@@ -15,13 +16,16 @@ import type { JobRun, LogLine, Run, RunStatus, RunSubscription } from "@/lib/typ
 type LogsByJob = Record<string, LogLine[]>;
 
 export function BuildDetailPage() {
-  const { runId: runIdParam } = useParams({ from: "/runs/$runId" });
-  const runId = Number(runIdParam);
+  const { workflow: workflowParam, runNumber: runNumberParam } = useParams({ from: "/runs/$workflow/$runNumber" });
+  const workflow = decodeURIComponent(workflowParam);
+  const runNumber = Number(runNumberParam);
   const resolveName = useResolveUserName();
   const { t } = useTranslation();
 
   const [run, setRun] = useState<Run | null>(null);
   const [jobs, setJobs] = useState<JobRun[]>([]);
+  // Internal run id (resolved from workflow + runNumber) drives SignalR identity.
+  const [runId, setRunId] = useState<number | null>(null);
   const [logs, setLogs] = useState<LogsByJob>({});
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [jobFilter, setJobFilter] = useState("");
@@ -61,9 +65,29 @@ export function BuildDetailPage() {
     setLogs((prev) => ({ ...prev, [jobKey]: [...(prev[jobKey] ?? []), line] }));
   }, []);
 
+  // Initial load: REST by (workflow, runNumber) resolves the internal run id.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .run(workflow, runNumber)
+      .then((page) => {
+        if (cancelled) return;
+        setRunId(page.run.id);
+        setRun(page.run);
+        setJobs(page.jobs);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workflow, runNumber]);
+
   useEffect(() => {
     let cancelled = false;
     let connection: HubConnection | null = null;
+    if (runId === null) return;
 
     const resubscribe = async () => {
       // Reconnects replay the full snapshot; cursors dedupe overlapping lines.
@@ -123,7 +147,14 @@ export function BuildDetailPage() {
         <div className="flex items-center gap-3">
           {run && <StatusIcon status={run.status} size={22} />}
           <h1 className="text-xl font-semibold">
-            {run?.workflowName ?? "…"} <span className="text-fg-muted">#{runId}</span>
+            <Link
+              to="/jobs/$name"
+              params={{ name: run?.workflowName ?? workflow }}
+              className="hover:text-link hover:underline"
+            >
+              {run?.workflowName ?? "…"}
+            </Link>{" "}
+            <span className="text-fg-muted">#{run?.runNumber ?? runNumber}</span>
           </h1>
         </div>
         <div className="flex items-center gap-3 text-xs text-fg-muted">
@@ -136,6 +167,7 @@ export function BuildDetailPage() {
               disabled={retrying}
               onClick={async () => {
                 setRetrying(true);
+                if (runId === null) return;
                 try {
                   await api.retryRun(runId);
                 } catch (e) {
@@ -156,8 +188,9 @@ export function BuildDetailPage() {
               disabled={cancelling}
               onClick={async () => {
                 setCancelling(true);
+                if (runId === null) return;
                 try {
-                  await api.cancelRun(runId);
+                  await api.cancelRun(workflow, runNumber);
                 } finally {
                   setCancelling(false);
                 }
@@ -228,7 +261,7 @@ export function BuildDetailPage() {
         {/* Selected job: per-step consoles */}
         <section className="min-w-0 flex-1">
           {currentJob ? (
-            <JobConsole job={currentJob} lines={logs[currentJob.jobKey] ?? []} />
+            <JobConsole job={currentJob} workflow={workflow} runNumber={runNumber} lines={logs[currentJob.jobKey] ?? []} />
           ) : (
             <div className="rounded-md border border-line bg-canvas p-6 text-sm text-fg-muted">{t("runDetail.selectJobHint")}</div>
           )}
@@ -265,19 +298,16 @@ function DagView({
   return (
     <div className="flex justify-center overflow-x-auto rounded-md border border-line bg-canvas p-4">
       <svg width={layout.width} height={layout.height + 24} role="img" aria-label={t("runDetail.dagAria")} style={{ minWidth: layout.width }}>
-        {layout.edges.map((edge) => {
-          const highlight = selected === edge.to || selected === edge.from;
-          return (
+        {layout.edges.map((edge) => (
             <path
               key={`${edge.from}->${edge.to}`}
               d={edge.d}
               fill="none"
-              style={{ stroke: highlight ? "var(--link)" : "var(--line)" }}
-              strokeWidth={highlight ? 2.5 : 2}
+              style={{ stroke: "var(--line)" }}
+              strokeWidth={2}
               strokeLinecap="round"
             />
-          );
-        })}
+        ))}
         {layout.nodes.map((node) => {
           if (node.kind === "job") {
             const isSelected = node.jobKey === selected;
@@ -332,7 +362,7 @@ function DagView({
   );
 }
 
-function JobConsole({ job, lines }: { job: JobRun; lines: LogLine[] }) {
+function JobConsole({ job, workflow, runNumber, lines }: { job: JobRun; workflow: string; runNumber: number; lines: LogLine[] }) {
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
 
   // Group lines by their step index; each step owns one console.
@@ -351,7 +381,7 @@ function JobConsole({ job, lines }: { job: JobRun; lines: LogLine[] }) {
 
   return (
     <div className="space-y-3">
-      <JobHeader job={job} />
+      <JobHeader job={job} workflow={workflow} runNumber={runNumber} />
 
       {job.steps.map((step, index) => (
         <StepSection
@@ -491,10 +521,10 @@ function StatusGlyph({ status, compact = false }: { status: string; compact?: bo
   }
 }
 
-function JobHeader({ job }: { job: JobRun }) {
+function JobHeader({ job, workflow, runNumber }: { job: JobRun; workflow: string; runNumber: number }) {
   const [open, setOpen] = useState(false);
   const { t } = useTranslation();
-  const base = `/api/runs/${job.runId}/logs/${encodeURIComponent(job.jobKey)}/download`;
+  const base = api.runLogDownloadUrl(workflow, runNumber, job.jobKey, "raw").replace("?format=raw", "");
 
   return (
     <div className="relative flex items-center gap-2 rounded-md border border-line bg-canvas px-3 py-2.5">
