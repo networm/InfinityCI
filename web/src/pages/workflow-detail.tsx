@@ -3,7 +3,6 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import type { HubConnection } from "@microsoft/signalr";
 import { ChevronLeft, ChevronRight, Copy, History, Pencil, Play, RefreshCw, Trash2 } from "lucide-react";
 
-import { AutomationCard } from "@/components/automation-card";
 import { HistoryDrawer } from "@/components/history-drawer";
 import { useTriggerWithParams } from "@/components/trigger-dialog";
 import { StatusIcon } from "@/components/status-icon";
@@ -185,10 +184,6 @@ export function WorkflowDetailPage() {
 
       {message && (
         <div className="rounded-md border border-danger-line bg-danger-subtle px-3 py-2 text-sm text-danger">{message}</div>
-      )}
-
-      {isAdmin && (
-        <AutomationCard name={name} onMessage={setMessage} />
       )}
 
       <section>

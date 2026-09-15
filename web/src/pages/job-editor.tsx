@@ -5,7 +5,9 @@ import { dump as yamlDump, load as yamlLoad } from "js-yaml";
 import { useTranslation } from "react-i18next";
 import i18next from "i18next";
 
+import { AutomationCard } from "@/components/automation-card";
 import { api } from "@/lib/api";
+import { useMe } from "@/lib/me-context";
 import type { EditorJob, EditorParam, EditorScm, EditorStep, EditorWorkflow } from "@/lib/types";
 
 function modelToYaml(workflow: EditorWorkflow): string {
@@ -131,6 +133,8 @@ export function JobEditorPage() {
   const search = useSearch({ strict: false }) as { from?: string };
   const copyFrom = isEdit ? undefined : search.from;
   const navigate = useNavigate();
+  const { me } = useMe();
+  const isAdmin = me?.role === "Admin" || me?.role === "SuperAdmin";
 
   const [workflow, setWorkflow] = useState<EditorWorkflow>({
     name: "",
@@ -246,6 +250,10 @@ export function JobEditorPage() {
 
       {error && (
         <div className="rounded-md border border-danger-line bg-danger-subtle px-3 py-2 text-sm text-danger">{error}</div>
+      )}
+
+      {isAdmin && isEdit && (
+        <AutomationCard name={editName!} onMessage={setError} />
       )}
 
       {mode === "form" ? (
