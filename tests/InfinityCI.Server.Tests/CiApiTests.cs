@@ -23,7 +23,8 @@ public class CiApiTests : IDisposable
     public CiApiTests()
     {
         Directory.CreateDirectory(Path.Combine(_dir, "jobs"));
-        File.WriteAllText(Path.Combine(_dir, "jobs", "api-job.yml"), """
+        Directory.CreateDirectory(Path.Combine(_dir, "api-job"));
+        File.WriteAllText(Path.Combine(_dir, "api-job", "workflow.yml"), """
             name: api-job
             project: Default
             jobs:

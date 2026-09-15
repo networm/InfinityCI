@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using InfinityCI.Core;
+using InfinityCI.Server.Jobs;
 using InfinityCI.Server.Auth;
 using InfinityCI.Server.Storage;
 using Microsoft.Extensions.Options;
@@ -21,7 +22,7 @@ public sealed class JobRunExecutor(
 {
     private readonly CiServerOptions _options = optionsAccessor.Value;
 
-    public async Task<JobRunStatus> ExecuteAsync(JobRun jobRun, WorkflowJob job, ScmConfig? workflowScm, IReadOnlyDictionary<string, string> runParams, CancellationToken stoppingToken)
+    public async Task<JobRunStatus> ExecuteAsync(JobRun jobRun, WorkflowJob job, ScmConfig? workflowScm, string workflow, int runNumber, IReadOnlyDictionary<string, string> runParams, CancellationToken stoppingToken)
     {
         using var scope = scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<RunRepository>();
@@ -32,7 +33,7 @@ public sealed class JobRunExecutor(
         await repo.SaveJobRunTransitionAsync(jobRun);
         await events.PublishJobRunUpdatedAsync(jobRun);
 
-        var workspace = Path.Combine(_options.WorkspacesDir, $"{jobRun.RunId}-{JobLogStore.SanitizeJobKey(jobRun.JobKey)}");
+        var workspace = Path.Combine(_options.DataDir, WorkflowStore.Sanitize(workflow), "workspaces", $"{runNumber}-{JobLogStore.SanitizeJobKey(jobRun.JobKey)}");
         Directory.CreateDirectory(workspace);
 
         // SCM checkout: steps run inside the working copy when the workflow
@@ -41,9 +42,9 @@ public sealed class JobRunExecutor(
         {
             try
             {
-                await Append(jobRun, 0, $"[server] checking out {scm.Url}...");
+                await Append(jobRun, workflow, runNumber, 0, $"[server] checking out {scm.Url}...");
                 var credential = credentialStore.Resolve(scm.Credentials);
-                var checkout = GitSourceFetcher.Fetch(scm, workspace, credential, line => Append(jobRun, 0, line).GetAwaiter().GetResult());
+                var checkout = GitSourceFetcher.Fetch(scm, workspace, credential, line => Append(jobRun, workflow, runNumber, 0, line).GetAwaiter().GetResult());
                 jobRun.SourceBranch = checkout.Branch;
                 jobRun.CommitSha = checkout.CommitSha;
                 await repo.SaveJobRunTransitionAsync(jobRun, CancellationToken.None);
@@ -55,7 +56,7 @@ public sealed class JobRunExecutor(
             }
             catch (Exception ex)
             {
-                await Append(jobRun, 0, $"[server] checkout failed: {ex.Message}");
+                await Append(jobRun, workflow, runNumber, 0, $"[server] checkout failed: {ex.Message}");
                 jobRun.Status = JobRunStatus.Failed;
                 jobRun.FinishedAt = DateTimeOffset.UtcNow;
                 await PersistAsync(repo, jobRun, CancellationToken.None);
@@ -67,7 +68,7 @@ public sealed class JobRunExecutor(
         var overall = JobRunStatus.Success;
         try
         {
-            await Append(jobRun, 0, $"[server] job '{jobRun.JobKey}' of run {jobRun.RunId} started on {Environment.MachineName}.");
+            await Append(jobRun, workflow, runNumber, 0, $"[server] job '{jobRun.JobKey}' of run {runNumber} started on {Environment.MachineName}.");
 
             for (var i = 0; i < job.Steps.Count; i++)
             {
@@ -78,14 +79,14 @@ public sealed class JobRunExecutor(
                     continue; // preserved from the previous attempt of a retried run
                 result.Status = JobRunStatus.Running;
                 result.StartedAt = DateTimeOffset.UtcNow;
-                result.StartLine = await logStore.GetEndLineAsync(jobRun.RunId, jobRun.JobKey);
+                result.StartLine = await logStore.GetEndLineAsync(jobRun.RunId, workflow, runNumber, jobRun.JobKey);
                 await PersistAsync(repo, jobRun, cts.Token);
 
-                var exitCode = await RunStepAsync(jobRun, job, step, workspace, i, runParams, cts.Token);
+                var exitCode = await RunStepAsync(jobRun, job, step, workspace, i, workflow, runNumber, runParams, cts.Token);
 
                 result.ExitCode = exitCode;
                 result.FinishedAt = DateTimeOffset.UtcNow;
-                result.EndLine = await logStore.GetEndLineAsync(jobRun.RunId, jobRun.JobKey);
+                result.EndLine = await logStore.GetEndLineAsync(jobRun.RunId, workflow, runNumber, jobRun.JobKey);
 
                 if (cts.IsCancellationRequested)
                 {
@@ -99,7 +100,7 @@ public sealed class JobRunExecutor(
                 else if (step.ContinueOnError)
                 {
                     result.Status = JobRunStatus.Failed;
-                    await Append(jobRun, i, $"[server] step '{step.Name}' failed with exit code {exitCode}; continuing (continue_on_error).");
+                    await Append(jobRun, workflow, runNumber, i, $"[server] step '{step.Name}' failed with exit code {exitCode}; continuing (continue_on_error).");
                 }
                 else
                 {
@@ -107,7 +108,7 @@ public sealed class JobRunExecutor(
                     overall = JobRunStatus.Failed;
                     for (var j = i + 1; j < job.Steps.Count; j++)
                         jobRun.Steps[j].Status = JobRunStatus.Skipped;
-                    await Append(jobRun, i, $"[server] step '{step.Name}' failed with exit code {exitCode}; skipping remaining steps.");
+                    await Append(jobRun, workflow, runNumber, i, $"[server] step '{step.Name}' failed with exit code {exitCode}; skipping remaining steps.");
                 }
 
                 await PersistAsync(repo, jobRun, cts.Token);
@@ -123,14 +124,14 @@ public sealed class JobRunExecutor(
             {
                 running.Status = JobRunStatus.Cancelled;
                 running.FinishedAt = DateTimeOffset.UtcNow;
-                running.EndLine = await logStore.GetEndLineAsync(jobRun.RunId, jobRun.JobKey);
+                running.EndLine = await logStore.GetEndLineAsync(jobRun.RunId, workflow, runNumber, jobRun.JobKey);
             }
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Job run {JobRunId} failed unexpectedly", jobRun.Id);
             overall = JobRunStatus.Failed;
-            await Append(jobRun, 0, $"[server] internal error: {ex.Message}");
+            await Append(jobRun, workflow, runNumber, 0, $"[server] internal error: {ex.Message}");
         }
 
         jobRun.Status = overall;
@@ -142,7 +143,7 @@ public sealed class JobRunExecutor(
             _ => null,
         };
         await PersistAsync(repo, jobRun, CancellationToken.None);
-        await Append(jobRun, 0, $"[server] job finished: {overall}.");
+        await Append(jobRun, workflow, runNumber, 0, $"[server] job finished: {overall}.");
         await events.PublishJobRunUpdatedAsync(jobRun);
         return overall;
 
@@ -153,13 +154,10 @@ public sealed class JobRunExecutor(
         }
     }
 
-    private async Task Append(JobRun jobRun, int stepIndex, string text)
-    {
-        var line = await logStore.AppendAsync(jobRun.RunId, jobRun.JobKey, stepIndex, text);
-        await events.PublishLogAppendedAsync(new LogAppendedEventArgs(jobRun.RunId, jobRun.JobKey, line));
-    }
+    private Task Append(JobRun jobRun, string workflow, int runNumber, int stepIndex, string text) =>
+        logStore.AppendAndPublishAsync(events, jobRun.RunId, workflow, runNumber, jobRun.JobKey, stepIndex, text);
 
-    private async Task<int> RunStepAsync(JobRun jobRun, WorkflowJob job, JobStep step, string workspace, int stepIndex, IReadOnlyDictionary<string, string> runParams, CancellationToken ct)
+    private async Task<int> RunStepAsync(JobRun jobRun, WorkflowJob job, JobStep step, string workspace, int stepIndex, string workflow, int runNumber, IReadOnlyDictionary<string, string> runParams, CancellationToken ct)
     {
         var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (key, value) in job.Environment)
@@ -179,8 +177,8 @@ public sealed class JobRunExecutor(
         process.Start();
         process.StandardInput.Close(); // children see EOF on stdin instead of the server's console
 
-        var stdout = PumpOutputAsync(process.StandardOutput, jobRun, stepIndex);
-        var stderr = PumpOutputAsync(process.StandardError, jobRun, stepIndex);
+        var stdout = PumpOutputAsync(process.StandardOutput, jobRun, workflow, runNumber, stepIndex);
+        var stderr = PumpOutputAsync(process.StandardError, jobRun, workflow, runNumber, stepIndex);
 
         using var killOnCancel = ct.Register(() =>
         {
@@ -217,10 +215,10 @@ public sealed class JobRunExecutor(
         return process.ExitCode;
     }
 
-    private async Task PumpOutputAsync(StreamReader reader, JobRun jobRun, int stepIndex)
+    private async Task PumpOutputAsync(StreamReader reader, JobRun jobRun, string workflow, int runNumber, int stepIndex)
     {
         // No cancellation token: the stream ends when the (possibly killed) process closes it.
         while (await reader.ReadLineAsync() is { } line)
-            await Append(jobRun, stepIndex, line);
+            await Append(jobRun, workflow, runNumber, stepIndex, line);
     }
 }

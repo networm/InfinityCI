@@ -19,7 +19,8 @@ public class WorkflowControlTests : IDisposable
     public WorkflowControlTests()
     {
         Directory.CreateDirectory(Path.Combine(_dir, "jobs"));
-        File.WriteAllText(Path.Combine(_dir, "jobs", "ctl-job.yml"), """
+        Directory.CreateDirectory(Path.Combine(_dir, "ctl-job"));
+        File.WriteAllText(Path.Combine(_dir, "ctl-job", "workflow.yml"), """
             name: ctl-job
             params:
               TARGET:

@@ -7,95 +7,94 @@ namespace InfinityCI.Server.Jobs;
 public sealed record WorkflowCommit(string Sha, string Message, string Author, DateTimeOffset When);
 
 /// <summary>
-/// Keeps {DataDir}/jobs under its own Git repository: workflow saves and
-/// deletes become commits (author = the acting user), history is browsable and
-/// restorable, and the repo can be cloned read-only over the /git/jobs
-/// endpoints. Updates .git/info/refs after each commit so dumb-HTTP clones work.
+/// Each workflow owns an independent Git repository at {DataDir}/{workflow}/.git
+/// tracking its workflow.yml only — a task's config history is fully isolated
+/// from every other task. Logs and workspaces are ignored. .git/info/refs is
+/// refreshed after each commit so dumb-HTTP clones keep working.
 /// </summary>
 public sealed class WorkflowGitStore(IOptions<CiServerOptions> optionsAccessor, ILogger<WorkflowGitStore> logger)
 {
     private readonly CiServerOptions _options = optionsAccessor.Value;
-    private readonly SemaphoreSlim _gate = new(1, 1);
     private const string IdentityName = "Infinity CI";
     private const string IdentityEmail = "ci@localhost";
+    private const string ConfigFileName = WorkflowStore.ConfigFileName;
 
-    public string RepositoryPath => _options.JobsDir;
+    /// <summary>Task directory: {DataDir}/{sanitized workflow name}.</summary>
+    public string WorkflowDir(string workflowName) => Path.Combine(_options.DataDir, WorkflowStore.Sanitize(workflowName));
 
-    /// <summary>Inits the repo on first run; commits any existing files as the initial commit.</summary>
-    public void EnsureRepository()
+    /// <summary>Inits (or validates) the repo for one workflow and commits existing config.</summary>
+    public void EnsureRepository(string workflowName)
     {
-        Directory.CreateDirectory(_options.JobsDir);
-        if (!Repository.IsValid(_options.JobsDir))
+        var dir = WorkflowDir(workflowName);
+        Directory.CreateDirectory(dir);
+        if (!Repository.IsValid(dir))
         {
-            Repository.Init(_options.JobsDir);
-            logger.LogInformation("Initialized workflow config repository at {Path}", _options.JobsDir);
+            Repository.Init(dir);
+            // Keep runtime directories out of the config repo's history.
+            File.WriteAllText(Path.Combine(dir, ".gitignore"), "logs/\nworkspaces/\n");
+            logger.LogInformation("Initialized config repository for workflow {Workflow} at {Path}", workflowName, dir);
         }
-        CommitAll("initial import", "system");
+        CommitAll(workflowName, "initial import", "system");
     }
 
-    /// <summary>Commits pending changes to the tracked YAML files. No-op when the tree is clean.</summary>
-    public void CommitAll(string message, string author)
+    /// <summary>Commits pending config changes for one workflow. No-op when clean.</summary>
+    public void CommitAll(string workflowName, string message, string author)
     {
-        var path = CommitPath();
+        var path = RepoPath(workflowName);
         if (path is null)
             return;
         using var repo = new Repository(path);
         Commands.Stage(repo, "*");
-        // After staging, any non-clean entry means there is something to commit.
         var isDirty = repo.RetrieveStatus(new StatusOptions()).Any(entry => entry.State != FileStatus.Unaltered && entry.State != FileStatus.Ignored);
         if (isDirty)
         {
             var signature = new Signature(author, IdentityEmail, DateTimeOffset.Now);
             repo.Commit(message, signature, signature);
-            UpdateInfoRefs();
+            UpdateInfoRefs(workflowName);
         }
     }
 
-    /// <summary>History of commits touching {name}.yml, newest first.</summary>
-    public IReadOnlyList<WorkflowCommit> History(string name)
+    /// <summary>History of the task's config commits, newest first.</summary>
+    public IReadOnlyList<WorkflowCommit> History(string workflowName)
     {
-        var path = CommitPath();
+        var path = RepoPath(workflowName);
         if (path is null)
             return [];
         using var repo = new Repository(path);
-        var relative = WorkflowFileName(name);
         var commits = new List<WorkflowCommit>();
         foreach (var commit in repo.Commits)
         {
-            var entry = commit.Tree[relative];
+            var entry = commit.Tree[ConfigFileName];
             if (entry is null)
                 continue;
             var parent = commit.Parents.FirstOrDefault();
-            var changed = parent is null || parent.Tree[relative] is null || parent.Tree[relative]!.Target.Sha != entry.Target.Sha;
+            var changed = parent is null || parent.Tree[ConfigFileName] is null || parent.Tree[ConfigFileName]!.Target.Sha != entry.Target.Sha;
             if (changed)
                 commits.Add(new WorkflowCommit(commit.Sha, commit.MessageShort, commit.Author.Name, commit.Author.When));
         }
         return commits;
     }
 
-    /// <summary>The workflow file's content at a given commit; null when absent there.</summary>
-    public string? ReadAt(string name, string sha)
+    /// <summary>The config content at a given commit; null when absent there.</summary>
+    public string? ReadAt(string workflowName, string sha)
     {
-        var path = CommitPath();
+        var path = RepoPath(workflowName);
         if (path is null)
             return null;
         using var repo = new Repository(path);
         var commit = repo.Lookup<Commit>(sha);
         if (commit is null)
             return null;
-        var entry = commit.Tree[WorkflowFileName(name)];
+        var entry = commit.Tree[ConfigFileName];
         if (entry?.Target.Id is not { } blobId)
             return null;
         return repo.Lookup<Blob>(blobId)?.GetContentText();
     }
 
-    /// <summary>Current HEAD sha of the workflow file's last touching commit; null when untracked.</summary>
-    public string? HeadShaFor(string name) => History(name).FirstOrDefault()?.Sha;
-
-    /// <summary>Packfile names (without directory) for the dumb-HTTP packs index.</summary>
-    public IReadOnlyList<string> ReadPackNames()
+    /// <summary>Packfile names for the task's repo (dumb-HTTP packs index).</summary>
+    public IReadOnlyList<string> ReadPackNames(string workflowName)
     {
-        var packDir = Path.Combine(CommitPath() ?? "", ".git", "objects", "pack");
+        var packDir = Path.Combine(RepoPath(workflowName) ?? "", ".git", "objects", "pack");
         if (!Directory.Exists(packDir))
             return [];
         return Directory.EnumerateFiles(packDir, "*.pack")
@@ -105,48 +104,28 @@ public sealed class WorkflowGitStore(IOptions<CiServerOptions> optionsAccessor, 
             .ToList();
     }
 
-    /// <summary>Reads a raw object from .git/objects (loose or packed) for dumb-HTTP clone.</summary>
-    public byte[]? ReadObjectFile(string relativePath)
+    /// <summary>Reads a raw object from the task repo (loose or packed) for dumb-HTTP clone.</summary>
+    public byte[]? ReadObjectFile(string workflowName, string relativePath)
     {
-        var basePath = CommitPath();
+        var basePath = RepoPath(workflowName);
         if (basePath is null)
-        {
-            Console.WriteLine($"DEBUG ReadObjectFile: CommitPath null (IsValid=false) for '{_options.JobsDir}'");
             return null;
-        }
         var fullPath = Path.GetFullPath(Path.Combine(basePath, ".git", "objects", relativePath));
         var root = Path.GetFullPath(Path.Combine(basePath, ".git", "objects"));
         if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !File.Exists(fullPath))
-        {
-            Console.WriteLine($"DEBUG ReadObjectFile: fullPath={fullPath} exists={File.Exists(fullPath)} root={root} cwd={Environment.CurrentDirectory}");
             return null;
-        }
         return File.ReadAllBytes(fullPath);
     }
 
-    /// <summary>Friendly branch name HEAD points at (e.g. "master").</summary>
-    public string? BranchName()
+    /// <summary>Current HEAD sha of the task repo; null when unavailable.</summary>
+    public string? ReadHeadRef(string workflowName)
     {
-        try
-        {
-            using var repo = new Repository(CommitPath()!);
-            return repo.Head?.FriendlyName;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    public string? ReadHeadRef()
-    {
-        var path = CommitPath();
+        var path = RepoPath(workflowName);
         if (path is null)
             return null;
         var head = Path.Combine(path, ".git", "HEAD");
         if (!File.Exists(head))
             return null;
-        // "ref: refs/heads/master\n"
         var content = File.ReadAllText(head).Trim();
         const string prefix = "ref: ";
         if (!content.StartsWith(prefix, StringComparison.Ordinal))
@@ -155,12 +134,26 @@ public sealed class WorkflowGitStore(IOptions<CiServerOptions> optionsAccessor, 
         return File.Exists(refPath) ? File.ReadAllText(refPath).Trim() : null;
     }
 
-    /// <summary>Rewrites .git/info/refs (dumb-HTTP protocol index).</summary>
-    private void UpdateInfoRefs()
+    /// <summary>Friendly branch name HEAD points at (e.g. "master").</summary>
+    public string? BranchName(string workflowName)
     {
         try
         {
-            var path = CommitPath();
+            using var repo = new Repository(RepoPath(workflowName)!);
+            return repo.Head?.FriendlyName;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Rewrites .git/info/refs (dumb-HTTP protocol index) for one task repo.</summary>
+    private void UpdateInfoRefs(string workflowName)
+    {
+        try
+        {
+            var path = RepoPath(workflowName);
             if (path is null)
                 return;
             using var repo = new Repository(path);
@@ -175,23 +168,18 @@ public sealed class WorkflowGitStore(IOptions<CiServerOptions> optionsAccessor, 
                     continue;
                 sb.Append(reference.TargetIdentifier).Append('\t').Append(type).Append('\t')
                     .Append(reference.CanonicalName).Append('\n');
-                if (obj is Commit commit)
-                {
-                    // Peel annotated tags to commits for the ^{} entry.
-                    var peeled = $"{commit.Sha}\tcommit\t{reference.CanonicalName}^{{}}\n";
-                    if (reference.IsTag || reference.CanonicalName.EndsWith("^{}", StringComparison.Ordinal))
-                        sb.Append(peeled);
-                }
             }
             File.WriteAllText(Path.Combine(refsDir, "refs"), sb.ToString());
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to update .git/info/refs for dumb HTTP clone");
+            logger.LogWarning(ex, "Failed to update .git/info/refs for workflow {Workflow}", workflowName);
         }
     }
 
-    private string? CommitPath() => Repository.IsValid(_options.JobsDir) ? _options.JobsDir : null;
-
-    private static string WorkflowFileName(string name) => WorkflowStore.Sanitize(name) + ".yml";
+    private string? RepoPath(string workflowName)
+    {
+        var dir = Path.Combine(_options.DataDir, WorkflowStore.Sanitize(workflowName));
+        return Repository.IsValid(dir) ? dir : null;
+    }
 }

@@ -14,20 +14,33 @@ public class WorkflowStoreTests : IDisposable
 
     public WorkflowStoreTests()
     {
-        _options = new CiServerOptions { DataDir = _dir };
-        Directory.CreateDirectory(_options.JobsDir);
+        _options = new CiServerOptions { DataDir = _dir, CreateSampleWorkflow = false };
     }
 
     private WorkflowStore CreateStore() => new(Options.Create(_options), new WorkflowGitStore(Options.Create(_options), NullLogger<WorkflowGitStore>.Instance), NullLogger<WorkflowStore>.Instance);
 
-    private void WriteWorkflow(string fileName, string yaml) =>
-        File.WriteAllText(Path.Combine(_options.JobsDir, fileName), yaml);
+    private void WriteWorkflow(string workflowName, string yaml)
+    {
+        var dir = Path.Combine(_options.DataDir, workflowName);
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, WorkflowStore.ConfigFileName), yaml);
+    }
+
+    /// <summary>Removes the sample workflow's config so Reload skips it
+    /// (the directory's .git may contain read-only objects — leave it alone).</summary>
+    private void RemoveSample()
+    {
+        var config = Path.Combine(_options.DataDir, "hello-workflow", WorkflowStore.ConfigFileName);
+        if (File.Exists(config))
+            File.Delete(config);
+    }
 
     [Fact]
     public async Task StartAsync_LoadsValidWorkflows_SkipsInvalidOnes()
     {
-        WriteWorkflow("good.yml", "name: good\njobs:\n  a:\n    steps:\n      - command: echo hi");
-        WriteWorkflow("bad.yml", "name: broken\njobs: {}");
+        WriteWorkflow("good", "name: good\njobs:\n  a:\n    steps:\n      - command: echo hi");
+        // Invalid workflows are skipped at load time (jobs: empty).
+        WriteWorkflow("broken", "name: broken\njobs: {}");
 
         var store = CreateStore();
         await store.StartAsync(CancellationToken.None);
@@ -38,13 +51,24 @@ public class WorkflowStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task StartAsync_EmptyDir_WritesSampleWorkflow()
+    public async Task StartAsync_SampleWorkflowFlagDisabled_DoesNotWriteSample()
     {
+        _options.CreateSampleWorkflow = false;
         var store = CreateStore();
         await store.StartAsync(CancellationToken.None);
 
-        Assert.Single(store.Workflows);
-        Assert.NotNull(store.TryGet("hello-workflow"));
+        Assert.Empty(store.Workflows);
+    }
+
+    [Fact]
+    public async Task StartAsync_SampleWorkflowEnabled_WritesSampleWorkflow()
+    {
+        _options.CreateSampleWorkflow = true;
+        var store = CreateStore();
+        await store.StartAsync(CancellationToken.None);
+
+        var workflow = Assert.Single(store.Workflows);
+        Assert.Equal("hello-workflow", workflow.Name);
     }
 
     [Fact]
@@ -60,6 +84,8 @@ public class WorkflowStoreTests : IDisposable
 
         Assert.NotNull(store.TryGet("save-test"));
         Assert.NotNull(store.TryGetRawYaml("save-test"));
+        // Config lives in the task's own directory, under its own git repo.
+        Assert.True(Directory.Exists(Path.Combine(_options.DataDir, "save-test", ".git")));
     }
 
     [Fact]
@@ -68,10 +94,10 @@ public class WorkflowStoreTests : IDisposable
         var store = CreateStore();
         await store.StartAsync(CancellationToken.None);
 
-        WriteWorkflow("added.yml", "name: added\njobs:\n  a:\n    steps:\n      - command: echo hi");
+        WriteWorkflow("added", "name: added\njobs:\n  a:\n    steps:\n      - command: echo hi");
         await TestEnv.WaitUntilAsync(() => store.TryGet("added") is not null, TimeSpan.FromSeconds(5));
 
-        File.Delete(Path.Combine(_options.JobsDir, "added.yml"));
+        File.Delete(Path.Combine(_options.DataDir, "added", "workflow.yml"));
         await TestEnv.WaitUntilAsync(() => store.TryGet("added") is null, TimeSpan.FromSeconds(5));
     }
 

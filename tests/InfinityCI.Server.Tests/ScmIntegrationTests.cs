@@ -31,7 +31,8 @@ public class ScmIntegrationTests : IDisposable
         }
 
         Directory.CreateDirectory(Path.Combine(_dir, "jobs"));
-        File.WriteAllText(Path.Combine(_dir, "jobs", "scm-job.yml"), $"""
+        Directory.CreateDirectory(Path.Combine(_dir, "scm-job"));
+        File.WriteAllText(Path.Combine(_dir, "scm-job", "workflow.yml"), $"""
             name: scm-job
             scm:
               url: {_sourceRepo.Replace('\\', '/')}

@@ -460,7 +460,7 @@ public static class CiApi
         {
             var run = await repo.GetRunAsync(name, runNumber);
             if (run is null) return Results.NotFound();
-            var lines = await logs.ReadAfterAsync(run.Id, jobKey, afterLine, maxLines);
+            var lines = await logs.ReadAfterAsync(run.Id, run.WorkflowName, run.RunNumber, jobKey, afterLine, maxLines);
             var next = lines.Count > 0 ? lines[^1].Line + 1 : afterLine;
             return Results.Ok(new LogPage(run.Id, jobKey, next, lines));
         }).RequireAuthorization();
@@ -469,7 +469,7 @@ public static class CiApi
         {
             var run = await repo.GetRunAsync(name, runNumber);
             if (run is null) return Results.NotFound();
-            var lines = await logs.ReadAfterAsync(run.Id, jobKey, 0);
+            var lines = await logs.ReadAfterAsync(run.Id, run.WorkflowName, run.RunNumber, jobKey, 0);
             var timestamped = string.Equals(format, "timestamped", StringComparison.OrdinalIgnoreCase);
             var content = string.Join("\n", lines.Select(l => timestamped
                 ? $"{DateTimeOffset.Parse(l.TimestampUtc).ToLocalTime():yyyy-MM-dd HH:mm:ss.fff}  {l.Text}"
@@ -544,9 +544,11 @@ public static class CiApi
             }
         }).RequireAuthorization();
 
-        app.MapGet("/api/runs/{id:long}/logs/{jobKey}", async (long id, string jobKey, JobLogStore logs, long afterLine = 0, int maxLines = 20_000) =>
+        app.MapGet("/api/runs/{id:long}/logs/{jobKey}", async (long id, string jobKey, JobLogStore logs, RunRepository repo, long afterLine = 0, int maxLines = 20_000) =>
         {
-            var lines = await logs.ReadAfterAsync(id, jobKey, afterLine, maxLines);
+            var legacyRun = await repo.GetRunAsync(id);
+            if (legacyRun is null) return Results.NotFound();
+            var lines = await logs.ReadAfterAsync(id, legacyRun.WorkflowName, legacyRun.RunNumber, jobKey, afterLine, maxLines);
             var next = lines.Count > 0 ? lines[^1].Line + 1 : afterLine;
             return Results.Ok(new LogPage(id, jobKey, next, lines));
         }).RequireAuthorization();
@@ -555,7 +557,7 @@ public static class CiApi
         {
             var run = await repo.GetRunAsync(id);
             if (run is null) return Results.NotFound();
-            var lines = await logs.ReadAfterAsync(id, jobKey, 0);
+            var lines = await logs.ReadAfterAsync(run.Id, run.WorkflowName, run.RunNumber, jobKey, 0);
             var timestamped = string.Equals(format, "timestamped", StringComparison.OrdinalIgnoreCase);
             var content = string.Join("\n", lines.Select(l => timestamped
                 ? $"{DateTimeOffset.Parse(l.TimestampUtc).ToLocalTime():yyyy-MM-dd HH:mm:ss.fff}  {l.Text}"
@@ -743,7 +745,7 @@ public static class CiApi
                     var configCommit = git.History(workflow.Name).FirstOrDefault();
                     if (configCommit is not null)
                     {
-                        branch = git.BranchName();
+                        branch = git.BranchName(workflow.Name);
                         commitSha = configCommit.Sha;
                         commitMessage = configCommit.Message;
                         commitAuthor = configCommit.Author;
@@ -832,7 +834,7 @@ public static class CiApi
             }
         }
 
-        app.Map("/git/jobs/info/refs", async (HttpContext http, CiDbContext db, WorkflowGitStore git) =>
+        app.Map("/git/{workflow}/info/refs", async (string workflow, HttpContext http, CiDbContext db, WorkflowGitStore git) =>
         {
             if (!CheckAuth(db, http.Request.Headers.Authorization))
             {
@@ -840,7 +842,7 @@ public static class CiApi
                 http.Response.StatusCode = 401;
                 return;
             }
-            if (git.ReadHeadRef() is not { } head)
+            if (git.ReadHeadRef(workflow) is not { } head)
             {
                 http.Response.StatusCode = 404;
                 return;
@@ -849,12 +851,12 @@ public static class CiApi
             await http.Response.WriteAsync($"{head}\trefs/heads/master\n");
         });
 
-        app.Map("/git/jobs/HEAD", async (HttpContext http, WorkflowGitStore git) =>
+        app.Map("/git/{workflow}/HEAD", async (string workflow, HttpContext http, WorkflowGitStore git) =>
         {
             await http.Response.WriteAsync("ref: refs/heads/master\n");
         }).AllowAnonymous();
 
-        app.Map("/git/jobs/objects/info/packs", async (HttpContext http, CiDbContext db, WorkflowGitStore git) =>
+        app.Map("/git/{workflow}/objects/info/packs", async (string workflow, HttpContext http, CiDbContext db, WorkflowGitStore git) =>
         {
             if (!CheckAuth(db, http.Request.Headers.Authorization))
             {
@@ -863,14 +865,14 @@ public static class CiApi
                 return;
             }
             http.Response.ContentType = "text/plain; charset=utf-8";
-            foreach (var packName in git.ReadPackNames())
+            foreach (var packName in git.ReadPackNames(workflow))
             {
                 await http.Response.WriteAsync("P " + packName + "\n");
             }
             await http.Response.WriteAsync("\n");
         });
 
-        app.Map("/git/jobs/objects/{*path}", async (string path, HttpContext http, CiDbContext db, WorkflowGitStore git) =>
+        app.Map("/git/{workflow}/objects/{*path}", async (string workflow, string path, HttpContext http, CiDbContext db, WorkflowGitStore git) =>
         {
             if (!CheckAuth(db, http.Request.Headers.Authorization))
             {
@@ -878,7 +880,7 @@ public static class CiApi
                 http.Response.StatusCode = 401;
                 return;
             }
-            if (!path.Contains("..") && git.ReadObjectFile(path) is { } bytes)
+            if (!path.Contains("..") && git.ReadObjectFile(workflow, path) is { } bytes)
             {
                 http.Response.ContentType = "application/octet-stream";
                 await http.Response.Body.WriteAsync(bytes);

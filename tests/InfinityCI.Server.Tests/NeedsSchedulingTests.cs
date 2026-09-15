@@ -27,7 +27,6 @@ public class NeedsSchedulingTests : IDisposable
     public NeedsSchedulingTests()
     {
         _options = new CiServerOptions { DataDir = _dir, MaxConcurrentJobs = 4 };
-        Directory.CreateDirectory(_options.JobsDir);
 
         var services = new ServiceCollection();
         services.AddDbContext<CiDbContext>(db => db.UseSqlite(_options.DbConnectionString));
@@ -74,8 +73,11 @@ public class NeedsSchedulingTests : IDisposable
         await _queue.Ready;
     }
 
-    private void WriteWorkflow(string yaml) =>
-        File.WriteAllText(Path.Combine(_options.JobsDir, $"dag-{Guid.NewGuid():N}.yml"), yaml);
+    private void WriteWorkflow(string yaml)
+    {
+        Directory.CreateDirectory(_options.DataDir);
+        TestEnv.WriteWorkflow(_options.DataDir, yaml);
+    }
 
     private async Task<Run> WaitForRunTerminalAsync(long runId, TimeSpan? timeout = null)
     {
@@ -118,7 +120,7 @@ public class NeedsSchedulingTests : IDisposable
 
         // Dependency order is visible in the per-job logs.
         var logs = new JobLogStore(_options);
-        var third = await logs.ReadAfterAsync(run.Id, "third", 0);
+        var third = await logs.ReadAfterAsync(run.Id, "chain", run.RunNumber, "third", 0);
         Assert.Contains(third, l => l.Text.Contains("third"));
     }
 

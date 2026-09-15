@@ -17,7 +17,8 @@ public class ParamsAndDownloadsTests : IDisposable
     public ParamsAndDownloadsTests()
     {
         Directory.CreateDirectory(Path.Combine(_dir, "jobs"));
-        File.WriteAllText(Path.Combine(_dir, "jobs", "param-job.yml"), """
+        Directory.CreateDirectory(Path.Combine(_dir, "param-job"));
+        File.WriteAllText(Path.Combine(_dir, "param-job", "workflow.yml"), """
             name: param-job
             params:
               GREETING: hello-default

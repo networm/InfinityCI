@@ -36,7 +36,7 @@ public sealed class CiHub(JobLogStore logStore, RunRepository repository, AgentR
         // twice (live + backfill) and deduplicated client-side by line index.
         var logs = new Dictionary<string, IReadOnlyList<LogLine>>();
         foreach (var jobRun in jobRuns)
-            logs[jobRun.JobKey] = await logStore.ReadAfterAsync(runId, jobRun.JobKey, 0);
+            logs[jobRun.JobKey] = await logStore.ReadAfterAsync(runId, run.WorkflowName, run.RunNumber, jobRun.JobKey, 0);
 
         return new RunSubscription(run, jobRuns, logs);
     }

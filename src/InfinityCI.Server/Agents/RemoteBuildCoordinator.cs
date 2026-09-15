@@ -166,13 +166,21 @@ public sealed class RemoteBuildCoordinator(
 
     public async Task AppendLogAsync(LogChunk chunk)
     {
-        if (chunk.Offset != await logStore.GetEndLineAsync(chunk.RunId, chunk.JobKey))
+        using var scope = scopeFactory.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<RunRepository>();
+        var run = await repo.GetRunAsync(chunk.RunId);
+        if (run is null)
+            return;
+        var workflow = run.WorkflowName;
+        var runNumber = run.RunNumber;
+        var endLine = await logStore.GetEndLineAsync(chunk.RunId, workflow, runNumber, chunk.JobKey);
+        if (chunk.Offset != endLine)
         {
-            logger.LogWarning("Log line-index mismatch for job run {JobRunId}: agent sent {Sent} (appending anyway)",
-                chunk.JobRunId, chunk.Offset);
+            logger.LogWarning("Log line-index mismatch for job run {JobRunId}: agent sent {Sent}, master expected {Expected} (appending anyway)",
+                chunk.JobRunId, chunk.Offset, endLine);
         }
         // The master-side log file is the single source of truth for line indexes.
-        var line = await logStore.AppendAsync(chunk.RunId, chunk.JobKey, chunk.StepIndex, chunk.Text);
+        var line = await logStore.AppendAsync(chunk.RunId, workflow, runNumber, chunk.JobKey, chunk.StepIndex, chunk.Text);
         await events.PublishLogAppendedAsync(new LogAppendedEventArgs(chunk.RunId, chunk.JobKey, line));
     }
 
@@ -209,6 +217,9 @@ public sealed class RemoteBuildCoordinator(
         var jobRun = await repo.GetJobRunAsync(finished.JobRunId);
         if (jobRun is null)
             return;
+        var run = await repo.GetRunAsync(jobRun.RunId);
+        if (run is null)
+            return;
 
         var status = Enum.TryParse<JobRunStatus>(finished.Status, ignoreCase: true, out var parsed)
             ? parsed
@@ -225,7 +236,7 @@ public sealed class RemoteBuildCoordinator(
         }
 
         await repo.SaveJobRunTransitionAsync(jobRun);
-        await logStore.AppendAndPublishAsync(events, jobRun.RunId, jobRun.JobKey, 0, $"[server] job finished: {status}.");
+        await logStore.AppendAndPublishAsync(events, jobRun.RunId, run.WorkflowName, run.RunNumber, jobRun.JobKey, 0, $"[server] job finished: {status}.");
         await events.PublishJobRunUpdatedAsync(jobRun);
         logger.LogInformation("Remote job run {JobRunId} finished: {Status}", jobRun.Id, status);
 
@@ -247,6 +258,9 @@ public sealed class RemoteBuildCoordinator(
         var jobRun = await repo.GetJobRunAsync(jobRunId);
         if (jobRun is not { Status: JobRunStatus.Running })
             return;
+        var run = await repo.GetRunAsync(jobRun.RunId);
+        if (run is null)
+            return;
 
         jobRun.Status = JobRunStatus.Queued;
         jobRun.StartedAt = null;
@@ -261,7 +275,7 @@ public sealed class RemoteBuildCoordinator(
             step.EndLine = 0;
         }
         await repo.SaveJobRunTransitionAsync(jobRun);
-        await logStore.AppendAndPublishAsync(events, jobRun.RunId, jobRun.JobKey, 0, "[server] agent disconnected; requeued the job.");
+        await logStore.AppendAndPublishAsync(events, jobRun.RunId, run.WorkflowName, run.RunNumber, jobRun.JobKey, 0, "[server] agent disconnected; requeued the job.");
         await events.PublishJobRunUpdatedAsync(jobRun);
         registry.EnqueuePending(PendingFromRunsOn(jobRun.RunsOn, jobRunId));
     }

@@ -10,6 +10,9 @@ public sealed class CiServerOptions
     /// <summary>Built SPA directory, relative to the content root ("wwwroot" for published single-EXE).</summary>
     public string WebDistDir { get; set; } = "../../web/dist";
 
+    /// <summary>Write the sample workflow when no workflows exist (tests disable this).</summary>
+    public bool CreateSampleWorkflow { get; set; } = true;
+
     public string JobsDir => Path.Combine(DataDir, "jobs");
     public string LogsDir => Path.Combine(DataDir, "logs");
     public string WorkspacesDir => Path.Combine(DataDir, "workspaces");

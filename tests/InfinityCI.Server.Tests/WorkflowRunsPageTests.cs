@@ -16,9 +16,11 @@ public class WorkflowRunsPageTests : IDisposable
     public WorkflowRunsPageTests()
     {
         Directory.CreateDirectory(Path.Combine(_dir, "jobs"));
-        File.WriteAllText(Path.Combine(_dir, "jobs", "paged.yml"),
+        Directory.CreateDirectory(Path.Combine(_dir, "paged"));
+        File.WriteAllText(Path.Combine(_dir, "paged", "workflow.yml"),
             "name: paged\njobs:\n  a:\n    steps:\n      - command: echo hi");
-        File.WriteAllText(Path.Combine(_dir, "jobs", "other.yml"),
+        Directory.CreateDirectory(Path.Combine(_dir, "other"));
+        File.WriteAllText(Path.Combine(_dir, "other", "workflow.yml"),
             "name: other\njobs:\n  a:\n    steps:\n      - command: echo hi");
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(b => b.UseSetting("InfinityCI:DataDir", _dir));

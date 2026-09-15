@@ -26,7 +26,6 @@ public class RunQueueServiceTests : IDisposable
     public RunQueueServiceTests()
     {
         _options = new CiServerOptions { DataDir = _dir, MaxConcurrentJobs = 4 };
-        Directory.CreateDirectory(_options.JobsDir);
 
         var services = new ServiceCollection();
         services.AddDbContext<CiDbContext>(db => db.UseSqlite(_options.DbConnectionString));
@@ -72,8 +71,11 @@ public class RunQueueServiceTests : IDisposable
         await _queue.Ready; // recovery must finish before triggering
     }
 
-    private void WriteWorkflow(string yaml) =>
-        File.WriteAllText(Path.Combine(_options.JobsDir, $"wf-{Guid.NewGuid():N}.yml"), yaml);
+    private void WriteWorkflow(string yaml)
+    {
+        Directory.CreateDirectory(_options.DataDir);
+        TestEnv.WriteWorkflow(_options.DataDir, yaml);
+    }
 
     private RunRepository Repo()
     {
@@ -133,9 +135,9 @@ public class RunQueueServiceTests : IDisposable
                 $"echo step must capture its output line (job={j.JobKey}, steps=[{dump}])");
         });
 
-        // Job logs are per-job files with their own line cursors.
+        // Job logs are per-job files under the task directory.
         var logs = new JobLogStore(_options);
-        var oneLines = await logs.ReadAfterAsync(run.Id, "one", 0);
+        var oneLines = await logs.ReadAfterAsync(run.Id, "parallel-job", run.RunNumber, "one", 0);
         Assert.Contains(oneLines, l => l.Text.Contains("ONE-done"));
         Assert.DoesNotContain(oneLines, l => l.Text.Contains("TWO-done"));
     }
@@ -180,7 +182,7 @@ public class RunQueueServiceTests : IDisposable
         var run = await _queue.TriggerAsync("ts-job", "tester");
         await WaitForRunTerminalAsync(run.Id);
 
-        var lines = await new JobLogStore(_options).ReadAfterAsync(run.Id, "a", 0);
+        var lines = await new JobLogStore(_options).ReadAfterAsync(run.Id, "ts-job", run.RunNumber, "a", 0);
         Assert.NotEmpty(lines);
         Assert.All(lines, l => Assert.True(DateTimeOffset.TryParse(l.TimestampUtc, out _), "every line needs an ISO timestamp"));
     }

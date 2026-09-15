@@ -266,7 +266,7 @@ public sealed class RunQueueService(
             if (jobRun is null)
                 continue;
 
-            var (job, workflowScm, runParams) = await ResolveJobAsync(jobRun, stoppingToken);
+            var (job, workflowScm, runParams, workflowName, runNumber) = await ResolveJobAsync(jobRun, stoppingToken);
             if (job is null)
             {
                 jobRun.Status = JobRunStatus.Failed;
@@ -286,7 +286,7 @@ public sealed class RunQueueService(
             _active[jobRun.Id] = cts;
             try
             {
-                await _executor.ExecuteAsync(jobRun, job, workflowScm, runParams, cts.Token);
+                await _executor.ExecuteAsync(jobRun, job, workflowScm, workflowName, runNumber, runParams, cts.Token);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -306,14 +306,14 @@ public sealed class RunQueueService(
         }
     }
 
-    private async Task<(WorkflowJob?, ScmConfig?, IReadOnlyDictionary<string, string>)> ResolveJobAsync(JobRun jobRun, CancellationToken ct)
+    private async Task<(WorkflowJob?, ScmConfig?, IReadOnlyDictionary<string, string>, string, int)> ResolveJobAsync(JobRun jobRun, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var run = await scope.ServiceProvider.GetRequiredService<RunRepository>().GetRunAsync(jobRun.RunId, ct);
         if (run is null)
-            return (null, null, new Dictionary<string, string>());
+            return (null, null, new Dictionary<string, string>(), "", 0);
         var workflow = workflowStore.TryGet(run.WorkflowName);
-        return (workflow?.Jobs.GetValueOrDefault(jobRun.JobKey), workflow?.Scm, run.Params);
+        return (workflow?.Jobs.GetValueOrDefault(jobRun.JobKey), workflow?.Scm, run.Params, run.WorkflowName, run.RunNumber);
     }
 
     /// <summary>Job runs left unfinished by a previous server run are requeued.</summary>
@@ -361,9 +361,12 @@ public sealed class RunQueueService(
 
 public static class JobLogStoreExtensions
 {
-    public static async Task AppendAndPublishAsync(this JobLogStore store, RunEvents events, long runId, string jobKey, int stepIndex, string text)
+    public static Task AppendAndPublishAsync(this JobLogStore store, RunEvents events, long runId, string jobKey, int stepIndex, string text) =>
+        store.AppendAndPublishAsync(events, runId, workflow: "", runNumber: 0, jobKey, stepIndex, text);
+
+    public static async Task AppendAndPublishAsync(this JobLogStore store, RunEvents events, long runId, string workflow, int runNumber, string jobKey, int stepIndex, string text)
     {
-        var line = await store.AppendAsync(runId, jobKey, stepIndex, text);
+        var line = await store.AppendAsync(runId, workflow, runNumber, jobKey, stepIndex, text);
         await events.PublishLogAppendedAsync(new LogAppendedEventArgs(runId, jobKey, line));
     }
 }

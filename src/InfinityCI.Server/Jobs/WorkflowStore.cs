@@ -5,12 +5,13 @@ using Microsoft.Extensions.Options;
 namespace InfinityCI.Server.Jobs;
 
 /// <summary>
-/// Loads workflow definitions from {DataDir}/jobs/*.yml and hot-reloads on file
-/// changes. Writes a sample workflow on first run when the directory is empty.
+/// Task-first layout: every workflow owns a directory {DataDir}/{workflow}
+/// containing its config (workflow.yml, tracked by the task's own Git repo),
+/// its logs and its workspaces. Changes hot-reload on file changes.
 /// </summary>
 public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, WorkflowGitStore gitStore, ILogger<WorkflowStore> logger) : IHostedService, IDisposable
 {
-    private static readonly string[] Extensions = [".yml", ".yaml"];
+    public const string ConfigFileName = "workflow.yml";
 
     public sealed record WorkflowEntry(Workflow Definition, string RawYaml);
 
@@ -26,13 +27,14 @@ public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, Wor
     /// <summary>Original YAML text, sent verbatim to agents in job assignments.</summary>
     public string? TryGetRawYaml(string name) => _workflows.TryGetValue(name, out var entry) ? entry.RawYaml : null;
 
+    /// <summary>Task directory: {DataDir}/{sanitized workflow name}.</summary>
+    public string WorkflowDir(string name) => Path.Combine(_options.DataDir, Sanitize(name));
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(_options.JobsDir);
-        gitStore.EnsureRepository();
+        Directory.CreateDirectory(_options.DataDir);
         EnsureSampleWorkflow();
         Reload();
-        gitStore.CommitAll("sync workflow files", "system");
         StartWatcher();
         return Task.CompletedTask;
     }
@@ -43,33 +45,30 @@ public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, Wor
         return Task.CompletedTask;
     }
 
-    /// <summary>Writes/updates a workflow file by name (job editor save path). Returns the parsed definition.</summary>
+    /// <summary>Writes/updates a workflow config and its per-task Git repo. Returns the parsed definition.</summary>
     public Workflow Save(string name, string yaml, string author = "system")
     {
         var parsed = WorkflowYaml.Parse(yaml);
         if (!parsed.Name.Equals(name.Trim(), StringComparison.OrdinalIgnoreCase))
             throw new WorkflowYamlException($"Workflow 'name' ({parsed.Name}) does not match the target file name '{name}'.");
-        Directory.CreateDirectory(_options.JobsDir);
-        File.WriteAllText(Path.Combine(_options.JobsDir, WorkflowStore.Sanitize(name) + ".yml"), yaml);
+
+        var dir = WorkflowDir(name);
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, ConfigFileName), yaml);
+        gitStore.EnsureRepository(name);
+        gitStore.CommitAll(name, $"update workflow {parsed.Name}", author);
         Reload();
-        gitStore.CommitAll($"update workflow {parsed.Name}", author);
         return parsed;
     }
 
     public bool Delete(string name, string author = "system")
     {
-        foreach (var extension in Extensions)
-        {
-            var path = Path.Combine(_options.JobsDir, Sanitize(name) + extension);
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-                Reload();
-                gitStore.CommitAll($"delete workflow {name}", author);
-                return true;
-            }
-        }
-        return false;
+        var dir = WorkflowDir(name);
+        if (!Directory.Exists(dir) || !File.Exists(Path.Combine(dir, ConfigFileName)))
+            return false;
+        File.Delete(Path.Combine(dir, ConfigFileName));
+        Reload();
+        return true;
     }
 
     public static string Sanitize(string name)
@@ -81,31 +80,33 @@ public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, Wor
     private void Reload()
     {
         var workflows = new Dictionary<string, WorkflowEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in Directory.EnumerateFiles(_options.JobsDir))
+        foreach (var dir in Directory.EnumerateDirectories(_options.DataDir))
         {
-            if (!Extensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
+            var configPath = Path.Combine(dir, ConfigFileName);
+            if (!File.Exists(configPath))
                 continue;
             try
             {
-                var raw = File.ReadAllText(file);
+                var raw = File.ReadAllText(configPath);
                 var workflow = WorkflowYaml.Parse(raw);
                 workflows[workflow.Name] = new WorkflowEntry(workflow, raw);
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Skipping invalid workflow file {File}", file);
+                logger.LogWarning(ex, "Skipping invalid workflow config {File}", configPath);
             }
         }
 
         _workflows = workflows;
-        logger.LogInformation("Loaded {Count} workflow(s) from {JobsDir}", workflows.Count, _options.JobsDir);
+        logger.LogInformation("Loaded {Count} workflow(s) from {DataDir}", workflows.Count, _options.DataDir);
     }
 
     private void StartWatcher()
     {
-        _watcher = new FileSystemWatcher(_options.JobsDir, "*.*")
+        _watcher = new FileSystemWatcher(_options.DataDir, ConfigFileName)
         {
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime,
+            IncludeSubdirectories = true,
             EnableRaisingEvents = true,
         };
         _watcher.Changed += OnFileSystemEvent;
@@ -116,7 +117,7 @@ public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, Wor
 
     private void OnFileSystemEvent(object sender, FileSystemEventArgs e)
     {
-        if (!Extensions.Contains(Path.GetExtension(e.FullPath), StringComparer.OrdinalIgnoreCase))
+        if (!Path.GetFileName(e.FullPath).Equals(ConfigFileName, StringComparison.OrdinalIgnoreCase))
             return;
 
         // Debounce bursts of events (editors often write several) into one reload.
@@ -139,9 +140,10 @@ public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, Wor
 
     private void EnsureSampleWorkflow()
     {
-        var hasWorkflows = Directory.EnumerateFiles(_options.JobsDir)
-            .Any(f => Extensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase));
-        if (hasWorkflows)
+        if (!_options.CreateSampleWorkflow)
+            return;
+        var sampleDir = Path.Combine(_options.DataDir, "hello-workflow");
+        if (File.Exists(Path.Combine(sampleDir, ConfigFileName)))
             return;
 
         const string sample = """
@@ -160,8 +162,11 @@ public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, Wor
                   - name: Second job (runs in parallel)
                     command: echo parallel job executed
             """;
-        File.WriteAllText(Path.Combine(_options.JobsDir, "hello-workflow.yml"), sample);
-        logger.LogInformation("Wrote sample workflow to {Path}", _options.JobsDir);
+        Directory.CreateDirectory(sampleDir);
+        File.WriteAllText(Path.Combine(sampleDir, ConfigFileName), sample);
+        gitStore.EnsureRepository("hello-workflow");
+        gitStore.CommitAll("hello-workflow", "initial import", "system");
+        logger.LogInformation("Wrote sample workflow to {Path}", sampleDir);
     }
 
     public void Dispose() => DisposeWatcher();

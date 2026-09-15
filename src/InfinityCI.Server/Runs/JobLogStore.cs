@@ -1,14 +1,15 @@
 using System.Text;
 using System.Text.Json;
 using InfinityCI.Core;
+using InfinityCI.Server.Jobs;
 
 namespace InfinityCI.Server.Runs;
 
 /// <summary>
-/// Per-job JSONL logs under {DataDir}/logs/{runId}/{jobKey}.jsonl. Every line is
-/// stamped by the master at append time and carries its line index, so clients
-/// resume after reconnects without losing or duplicating lines, and per-step
-/// consoles anchor by line ranges.
+/// Per-job JSONL logs under {DataDir}/{workflow}/logs/{runNumber}/{jobKey}.jsonl
+/// — task-first layout, one directory per run. Every line is stamped by the
+/// master at append time and carries its line index, so clients resume after
+/// reconnects without losing or duplicating lines.
 /// </summary>
 public sealed class JobLogStore(CiServerOptions options)
 {
@@ -18,8 +19,8 @@ public sealed class JobLogStore(CiServerOptions options)
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<(long RunId, string JobKey), long> _lineCounts = new();
 
-    /// <summary>Appends one line, stamps the timestamp, publishes nothing (caller fans out). Returns the stored line.</summary>
-    public async Task<LogLine> AppendAsync(long runId, string jobKey, int stepIndex, string text, CancellationToken ct = default)
+    /// <summary>Appends one line, stamps the timestamp, and returns the stored line.</summary>
+    public async Task<LogLine> AppendAsync(long runId, string workflow, int runNumber, string jobKey, int stepIndex, string text, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(text);
         if (text.Contains('\n'))
@@ -28,7 +29,7 @@ public sealed class JobLogStore(CiServerOptions options)
         await _gate.WaitAsync(ct);
         try
         {
-            var path = LogPath(runId, jobKey);
+            var path = LogPath(runId, workflow, runNumber, jobKey);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             long index;
             await using (var readFs = File.Exists(path)
@@ -58,14 +59,14 @@ public sealed class JobLogStore(CiServerOptions options)
         }
     }
 
-    public async Task<long> GetEndLineAsync(long runId, string jobKey)
+    public async Task<long> GetEndLineAsync(long runId, string workflow, int runNumber, string jobKey)
     {
         await _gate.WaitAsync();
         try
         {
             if (_lineCounts.TryGetValue((runId, jobKey), out var known))
                 return known;
-            var path = LogPath(runId, jobKey);
+            var path = LogPath(runId, workflow, runNumber, jobKey);
             if (!File.Exists(path))
                 return 0;
             await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -78,9 +79,9 @@ public sealed class JobLogStore(CiServerOptions options)
     }
 
     /// <summary>Returns lines with index at/after <paramref name="afterLine"/> (0 = from the beginning), oldest first.</summary>
-    public async Task<IReadOnlyList<LogLine>> ReadAfterAsync(long runId, string jobKey, long afterLine, int maxLines = 20_000, CancellationToken ct = default)
+    public async Task<IReadOnlyList<LogLine>> ReadAfterAsync(long runId, string workflow, int runNumber, string jobKey, long afterLine, int maxLines = 20_000, CancellationToken ct = default)
     {
-        var path = LogPath(runId, jobKey);
+        var path = LogPath(runId, workflow, runNumber, jobKey);
         if (!File.Exists(path))
             return [];
 
@@ -120,8 +121,8 @@ public sealed class JobLogStore(CiServerOptions options)
         return lines;
     }
 
-    public string LogPath(long runId, string jobKey) =>
-        Path.Combine(options.LogsDir, runId.ToString(), SanitizeJobKey(jobKey) + ".jsonl");
+    public string LogPath(long runId, string workflow, int runNumber, string jobKey) =>
+        Path.Combine(options.DataDir, WorkflowStore.Sanitize(workflow), "logs", runNumber.ToString(), SanitizeJobKey(jobKey) + ".jsonl");
 
     public static string SanitizeJobKey(string jobKey)
     {
