@@ -35,6 +35,9 @@ public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, Wor
         Directory.CreateDirectory(_options.DataDir);
         EnsureSampleWorkflow();
         Reload();
+        // Every task directory gets its own config repository.
+        foreach (var name in _workflows.Keys)
+            gitStore.EnsureRepository(name);
         StartWatcher();
         return Task.CompletedTask;
     }
