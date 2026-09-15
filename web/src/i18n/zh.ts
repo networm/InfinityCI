@@ -134,6 +134,8 @@ const zh = {
     runsOnLocal: "本地（Server）",
     runsOnAgent: "Agent",
     deleteJob: "删除 Job",
+    needs: "依赖 Job",
+    needsStale: "引用的 Job 不存在，点击移除",
     stepName: "步骤名",
     command: "命令",
     shell: "Shell",

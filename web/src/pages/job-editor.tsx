@@ -35,8 +35,10 @@ function modelToYaml(workflow: EditorWorkflow): string {
   doc.jobs = {} as Record<string, unknown>;
   const jobs = doc.jobs as Record<string, unknown>;
   for (const job of workflow.jobs) {
+    const needs = job.needs.map((n) => n.trim()).filter(Boolean);
     const jobDoc: Record<string, unknown> = {
       runs_on: job.runsOn || "local",
+      ...(needs.length > 0 ? { needs } : {}),
       steps: job.steps.map((step) => {
         const stepDoc: Record<string, unknown> = { name: step.name.trim() || "step", command: step.command };
         if (step.shell.trim()) stepDoc.shell = step.shell.trim();
@@ -54,7 +56,7 @@ function yamlToModel(text: string): EditorWorkflow {
     name?: string;
     project?: string;
     params?: Record<string, unknown>;
-    jobs?: Record<string, { runs_on?: string; steps?: { name?: string; command?: string; shell?: string; continue_on_error?: boolean }[] }>;
+    jobs?: Record<string, { runs_on?: string; needs?: unknown; steps?: { name?: string; command?: string; shell?: string; continue_on_error?: boolean }[] }>;
   };
   if (!doc || typeof doc !== "object") throw new Error(i18next.t("editor.invalidYaml"));
   if (!doc.name) throw new Error(i18next.t("editor.missingName"));
@@ -73,6 +75,7 @@ function yamlToModel(text: string): EditorWorkflow {
   const jobs: EditorJob[] = Object.entries(doc.jobs ?? {}).map(([key, job]) => ({
     key,
     runsOn: job?.runs_on ?? "local",
+    needs: needsToList(job?.needs),
     steps: (job?.steps ?? []).map((step) => ({
       name: step?.name ?? "",
       command: step?.command ?? "",
@@ -89,6 +92,13 @@ function yamlToModel(text: string): EditorWorkflow {
 
 function emptyStep(): EditorStep {
   return { name: "", command: "echo hello", shell: "", continueOnError: false };
+}
+
+// `needs` accepts both the scalar form (`needs: build`) and the list form.
+function needsToList(needs: unknown): string[] {
+  if (typeof needs === "string") return needs.trim() ? [needs.trim()] : [];
+  if (Array.isArray(needs)) return needs.map((n) => (n == null ? "" : String(n))).filter((n) => n.length > 0);
+  return [];
 }
 
 // The form model covers name/project/params/scm/jobs; anything else (job/step
@@ -127,7 +137,7 @@ export function JobEditorPage() {
     project: "Default",
     scm: null,
     params: [],
-    jobs: [{ key: "build", runsOn: "local", steps: [emptyStep()] }],
+    jobs: [{ key: "build", runsOn: "local", needs: [], steps: [emptyStep()] }],
   });
   const [mode, setMode] = useState<"form" | "yaml">("form");
   const [yamlText, setYamlText] = useState("");
@@ -412,8 +422,14 @@ export function JobEditorPage() {
                   <input
                     value={job.key}
                     onChange={(e) => {
-                      const jobs = [...workflow.jobs];
-                      jobs[jobIndex] = { ...job, key: e.target.value };
+                      const oldKey = job.key;
+                      const newKey = e.target.value;
+                      // Renaming a key rewires every `needs` that referenced the old key.
+                      const jobs = workflow.jobs.map((j, i) =>
+                        i === jobIndex
+                          ? { ...j, key: newKey }
+                          : { ...j, needs: j.needs.map((n) => (n === oldKey ? newKey : n)) },
+                      );
                       setWorkflow({ ...workflow, jobs });
                     }}
                     className="rounded-md border border-line px-2 py-1 font-mono text-sm outline-none focus:border-link"
@@ -437,13 +453,66 @@ export function JobEditorPage() {
                 {workflow.jobs.length > 1 && (
                   <button
                     type="button"
-                    onClick={() => setWorkflow({ ...workflow, jobs: workflow.jobs.filter((_, i) => i !== jobIndex) })}
+                    onClick={() => {
+                      const removedKey = job.key;
+                      const jobs = workflow.jobs
+                        .filter((_, i) => i !== jobIndex)
+                        .map((j) => ({ ...j, needs: j.needs.filter((n) => n !== removedKey) }));
+                      setWorkflow({ ...workflow, jobs });
+                    }}
                     className="ml-auto flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs text-danger hover:bg-danger-subtle"
                   >
                     <Trash2 size={12} />
                     {t("editor.deleteJob")}
                   </button>
                 )}
+              </div>
+
+              <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                <span className="mr-1 text-xs font-medium text-fg-muted">{t("editor.needs")}</span>
+                {workflow.jobs.map((other, otherIndex) => {
+                  if (otherIndex === jobIndex) return null;
+                  const key = other.key.trim();
+                  if (!key) return null;
+                  const selected = job.needs.includes(key);
+                  return (
+                    <button
+                      key={otherIndex}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => {
+                        const needs = selected ? job.needs.filter((n) => n !== key) : [...job.needs, key];
+                        updateJobAt(workflow, setWorkflow, jobIndex, { ...job, needs });
+                      }}
+                      className={
+                        "rounded-full border px-2 py-0.5 font-mono text-xs " +
+                        (selected
+                          ? "border-link-line bg-chip font-medium"
+                          : "border-line text-fg-muted hover:bg-canvas-subtle")
+                      }
+                    >
+                      {key}
+                    </button>
+                  );
+                })}
+                {job.needs
+                  .filter((n) => !workflow.jobs.some((other, i) => i !== jobIndex && other.key.trim() === n))
+                  .map((stale) => (
+                    <button
+                      key={stale}
+                      type="button"
+                      title={t("editor.needsStale")}
+                      onClick={() =>
+                        updateJobAt(workflow, setWorkflow, jobIndex, {
+                          ...job,
+                          needs: job.needs.filter((n) => n !== stale),
+                        })
+                      }
+                      className="rounded-full border border-danger-line px-2 py-0.5 font-mono text-xs text-danger line-through hover:bg-danger-subtle"
+                    >
+                      {stale}
+                    </button>
+                  ))}
               </div>
 
               <table className="w-full text-sm">
@@ -541,7 +610,7 @@ export function JobEditorPage() {
             onClick={() =>
               setWorkflow({
                 ...workflow,
-                jobs: [...workflow.jobs, { key: `job${workflow.jobs.length + 1}`, runsOn: "local", steps: [emptyStep()] }],
+                jobs: [...workflow.jobs, { key: `job${workflow.jobs.length + 1}`, runsOn: "local", needs: [], steps: [emptyStep()] }],
               })
             }
             className="flex items-center gap-1.5 rounded-md border border-line bg-canvas px-3 py-1.5 text-sm hover:bg-canvas-subtle"

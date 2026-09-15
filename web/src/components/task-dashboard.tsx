@@ -205,7 +205,9 @@ function WorkflowRow({
   const lastStatus = item.lastRun?.status ?? null;
   const colors = rowColors(lastStatus);
   // Whole card clickable: with runs → latest run; never-run → task detail.
-  const openTarget = item.lastRun ? `/runs/${item.lastRun.id}` : `/jobs/${item.name}`;
+  const openTarget = item.lastRun
+    ? `/runs/${encodeURIComponent(item.name)}/${item.lastRun.runNumber}`
+    : `/jobs/${item.name}`;
 
   return (
     <div

@@ -206,6 +206,8 @@ export interface EditorStep {
 export interface EditorJob {
   key: string;
   runsOn: string; // local | agent | agent:<label>
+  /** Job keys this job waits for (GitHub `needs`). */
+  needs: string[];
   steps: EditorStep[];
 }
 

@@ -134,6 +134,8 @@ const en = {
     runsOnLocal: "Local (server)",
     runsOnAgent: "Agent",
     deleteJob: "Delete job",
+    needs: "Depends on",
+    needsStale: "Referenced job no longer exists — click to remove",
     stepName: "Step name",
     command: "Command",
     shell: "Shell",
