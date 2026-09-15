@@ -87,7 +87,7 @@ export function JobsPage() {
               <tr className="border-b border-line bg-canvas-subtle text-left text-xs text-fg-muted">
                 <th className="px-4 py-2">{t("columns.name")}</th>
                 <th className="px-4 py-2">{t("columns.project")}</th>
-                <th className="px-4 py-2">Jobs</th>
+                <th className="px-4 py-2">{t("columns.jobs")}</th>
                 <th className="px-4 py-2 text-right">{t("columns.actions")}</th>
               </tr>
             </thead>

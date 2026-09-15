@@ -39,7 +39,7 @@ public sealed class RunQueueService(
     public async Task<Run> TriggerAsync(string workflowName, string triggeredBy, IReadOnlyDictionary<string, string>? paramValues = null, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workflowName);
-        var workflow = workflowStore.TryGet(workflowName) ?? throw new InvalidOperationException($"Unknown workflow '{workflowName}'.");
+        var workflow = workflowStore.TryGet(workflowName) ?? throw new InvalidOperationException(Msg.T($"Unknown workflow '{workflowName}'.", $"未知任务「{workflowName}」。"));
         if (!await workflowControl.IsEnabledAsync(workflowName, ct))
             throw new WorkflowDisabledException(workflowName);
 
@@ -60,7 +60,9 @@ public sealed class RunQueueService(
             .Select(p => p.Name)
             .ToList();
         if (missing.Count > 0)
-            throw new InvalidOperationException($"Missing required parameter(s): {string.Join(", ", missing)}.");
+            throw new MissingParametersException(Msg.T(
+                $"Missing required parameter(s): {string.Join(", ", missing)}.",
+                $"缺少必填参数：{string.Join(", ", missing)}。"));
 
         using var scope = scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<RunRepository>();
@@ -169,7 +171,9 @@ public sealed class RunQueueService(
         if (run is null)
             return null;
         if (run.Status != RunStatus.Failed)
-            throw new InvalidOperationException($"Run {runId} is {run.Status}; only failed runs can be retried.");
+            throw new InvalidOperationException(Msg.T(
+                $"Run {runId} is {run.Status}; only failed runs can be retried.",
+                $"构建 {runId} 当前状态为 {run.Status}，只有失败的构建才能重试。"));
 
         var workflow = workflowStore.TryGet(run.WorkflowName);
         var jobRuns = await repo.GetJobRunsAsync(runId, ct);
@@ -376,3 +380,6 @@ public static class JobRunStatusExtensions
     public static bool IsTerminal(this JobRunStatus status) =>
         status is JobRunStatus.Success or JobRunStatus.Failed or JobRunStatus.Cancelled;
 }
+
+/// <summary>Trigger rejected because required workflow parameters were not supplied.</summary>
+public sealed class MissingParametersException(string message) : InvalidOperationException(message);

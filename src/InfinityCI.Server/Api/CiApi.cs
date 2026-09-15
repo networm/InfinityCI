@@ -159,9 +159,9 @@ public static class CiApi
         app.MapPost("/api/projects", async (ProjectRequest request, CiDbContext db) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name))
-                return Results.BadRequest(new { message = "Project name is required." });
+                return Results.BadRequest(new { message = Msg.T("Project name is required.", "项目名称不能为空。") });
             if (await db.Projects.AnyAsync(p => p.Name == request.Name))
-                return Results.Conflict(new { message = $"Project '{request.Name}' already exists." });
+                return Results.Conflict(new { message = Msg.T($"Project '{request.Name}' already exists.", $"项目「{request.Name}」已存在。") });
             var project = new Project { Name = request.Name.Trim(), Description = request.Description };
             db.Projects.Add(project);
             await db.SaveChangesAsync();
@@ -183,7 +183,9 @@ public static class CiApi
             var project = await db.Projects.Include(p => p.Users).FirstOrDefaultAsync(p => p.Id == id);
             if (project is null) return Results.NotFound();
             if (store.Workflows.Any(w => w.Project == project.Name))
-                return Results.Conflict(new { message = $"Project '{project.Name}' still contains workflows; move or delete them first." });
+                return Results.Conflict(new { message = Msg.T(
+                    $"Project '{project.Name}' still contains workflows; move or delete them first.",
+                    $"项目「{project.Name}」下仍有任务，请先移动或删除。") });
             db.Projects.Remove(project);
             await db.SaveChangesAsync();
             return Results.Ok();
@@ -207,11 +209,11 @@ public static class CiApi
         app.MapPost("/api/users", async (CreateUserRequest request, CiDbContext db) =>
         {
             if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
-                return Results.BadRequest(new { message = "Username and password are required." });
+                return Results.BadRequest(new { message = Msg.T("Username and password are required.", "用户名和密码不能为空。") });
             if (request.Role is not (AppRoles.SuperAdmin or AppRoles.Admin or AppRoles.User))
-                return Results.BadRequest(new { message = $"Unknown role '{request.Role}'." });
+                return Results.BadRequest(new { message = Msg.T($"Unknown role '{request.Role}'.", $"未知角色「{request.Role}」。") });
             if (await db.Users.AnyAsync(u => u.Username == request.Username))
-                return Results.Conflict(new { message = $"User '{request.Username}' already exists." });
+                return Results.Conflict(new { message = Msg.T($"User '{request.Username}' already exists.", $"用户「{request.Username}」已存在。") });
 
             var user = new User
             {
@@ -231,7 +233,7 @@ public static class CiApi
             var user = await db.Users.Include(u => u.Projects).FirstOrDefaultAsync(u => u.Id == id);
             if (user is null) return Results.NotFound();
             if (request.Role is { } role && role is not (AppRoles.SuperAdmin or AppRoles.Admin or AppRoles.User))
-                return Results.BadRequest(new { message = $"Unknown role '{role}'." });
+                return Results.BadRequest(new { message = Msg.T($"Unknown role '{role}'.", $"未知角色「{role}」。") });
 
             if (request.Password is { Length: > 0 } password)
                 user.PasswordHash = PasswordHasher.Hash(password);
@@ -246,7 +248,7 @@ public static class CiApi
             }
             await db.SaveChangesAsync();
             if (user.Username == actor.Identity?.Name && user.Role != AppRoles.SuperAdmin && id.ToString() == actor.FindFirst(ClaimTypes.NameIdentifier)!.Value)
-                return Results.BadRequest(new { message = "Cannot demote yourself." });
+                return Results.BadRequest(new { message = Msg.T("Cannot demote yourself.", "不能将自己降级。") });
             return Results.Ok(new { user.Id, user.Username, user.Role });
         }).RequireAuthorization("SuperAdmin");
 
@@ -255,7 +257,7 @@ public static class CiApi
             var user = await db.Users.FindAsync([id]);
             if (user is null) return Results.NotFound();
             if (user.Username == actor.Identity?.Name)
-                return Results.BadRequest(new { message = "Cannot delete yourself." });
+                return Results.BadRequest(new { message = Msg.T("Cannot delete yourself.", "不能删除自己。") });
             db.Users.Remove(user);
             await db.SaveChangesAsync();
             return Results.Ok();
@@ -305,9 +307,9 @@ public static class CiApi
             {
                 var workflow = WorkflowYaml.Parse(request.Yaml);
                 if (store.TryGet(workflow.Name) is not null)
-                    return Results.Conflict(new { message = $"Workflow '{workflow.Name}' already exists." });
+                    return Results.Conflict(new { message = Msg.T($"Workflow '{workflow.Name}' already exists.", $"任务「{workflow.Name}」已存在。") });
                 if (!await ProjectExistsAsync(db, workflow.Project))
-                    return Results.BadRequest(new { message = $"Project '{workflow.Project}' does not exist. Create it on the Projects page first." });
+                    return Results.BadRequest(new { message = Msg.T($"Project '{workflow.Project}' does not exist. Create it on the Projects page first.", $"项目「{workflow.Project}」不存在，请先在项目页创建。") });
                 store.Save(workflow.Name, request.Yaml, await DisplayNameOfAsync(db, user));
                 return Results.Ok(new { name = workflow.Name });
             }
@@ -323,7 +325,7 @@ public static class CiApi
             {
                 var workflow = WorkflowYaml.Parse(request.Yaml);
                 if (!await ProjectExistsAsync(db, workflow.Project))
-                    return Results.BadRequest(new { message = $"Project '{workflow.Project}' does not exist. Create it on the Projects page first." });
+                    return Results.BadRequest(new { message = Msg.T($"Project '{workflow.Project}' does not exist. Create it on the Projects page first.", $"项目「{workflow.Project}」不存在，请先在项目页创建。") });
                 store.Save(name, request.Yaml, await DisplayNameOfAsync(db, user));
                 return Results.Ok(new { name });
             }
@@ -390,7 +392,7 @@ public static class CiApi
         {
             if (store.TryGet(name) is null) return Results.NotFound();
             if (git.ReadAt(name, request.Sha) is not { } yaml)
-                return Results.NotFound(new { message = $"Commit {request.Sha} has no version of '{name}'." });
+                return Results.NotFound(new { message = Msg.T($"Commit {request.Sha} has no version of '{name}'.", $"提交 {request.Sha} 中没有「{name}」的版本。") });
             try
             {
                 store.Save(name, yaml, await DisplayNameOfAsync(db, user));
@@ -405,7 +407,7 @@ public static class CiApi
         app.MapPost("/api/jobs/{name}/trigger", async (string name, RunQueueService queue, WorkflowStore store, CiDbContext db, ClaimsPrincipal user, TriggerRequest? request) =>
         {
             if (!await CanSeeWorkflowAsync(store, db, user, name))
-                return Results.NotFound(new { message = $"Unknown workflow '{name}'." });
+                return Results.NotFound(new { message = Msg.T($"Unknown workflow '{name}'.", $"未知任务「{name}」。") });
             try
             {
                 var displayName = await db.Users
@@ -419,18 +421,18 @@ public static class CiApi
             catch (InvalidOperationException ex)
             {
                 // Missing required params / disabled workflows surface distinctly.
-                if (ex.Message.StartsWith("Missing required parameter", StringComparison.Ordinal))
+                if (ex is MissingParametersException)
                     return Results.BadRequest(new { message = ex.Message });
                 if (ex is WorkflowDisabledException)
                     return Results.Conflict(new { message = ex.Message });
-                return Results.NotFound(new { message = $"Unknown workflow '{name}'." });
+                return Results.NotFound(new { message = Msg.T($"Unknown workflow '{name}'.", $"未知任务「{name}」。") });
             }
         }).RequireAuthorization();
 
         app.MapGet("/api/jobs/{name}/runs", async (string name, RunRepository repo, WorkflowStore store, CiDbContext db, ClaimsPrincipal user, int skip = 0, int take = 20) =>
         {
             if (!await CanSeeWorkflowAsync(store, db, user, name))
-                return Results.NotFound(new { message = $"Unknown workflow '{name}'." });
+                return Results.NotFound(new { message = Msg.T($"Unknown workflow '{name}'.", $"未知任务「{name}」。") });
             take = take is < 1 or > 100 ? 20 : take;
             var runs = await repo.ListRunsAsync(Math.Max(0, skip), take, name);
             var total = await repo.CountRunsAsync(name);
@@ -638,7 +640,7 @@ public static class CiApi
         app.MapPost("/api/agents/enrollments", async (EnrollmentRequest request, CiDbContext db) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name))
-                return Results.BadRequest(new { message = "Enrollment name is required." });
+                return Results.BadRequest(new { message = Msg.T("Enrollment name is required.", "注册名称不能为空。") });
             var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
             var enrollment = new AgentEnrollment
             {
@@ -687,7 +689,7 @@ public static class CiApi
         app.MapPost("/api/credentials", (CredentialRequest request, CredentialStore store) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Username))
-                return Results.BadRequest(new { message = "Name and username are required." });
+                return Results.BadRequest(new { message = Msg.T("Name and username are required.", "名称和用户名不能为空。") });
             store.Save(request.Name.Trim(), request.Username, request.Secret ?? "");
             return Results.Ok(new { name = request.Name.Trim() });
         }).RequireAuthorization("Admins");
@@ -791,9 +793,9 @@ public static class CiApi
         {
             var workflowName = await control.FindByWebhookTokenAsync(token);
             if (workflowName is null)
-                return Results.NotFound(new { message = "Unknown webhook token." });
+                return Results.NotFound(new { message = Msg.T("Unknown webhook token.", "未知的 Webhook 令牌。") });
             if (!await control.IsEnabledAsync(workflowName))
-                return Results.Conflict(new { message = $"Workflow '{workflowName}' is disabled." });
+                return Results.Conflict(new { message = Msg.T($"Workflow '{workflowName}' is disabled.", $"任务「{workflowName}」已禁用。") });
             try
             {
                 var run = await queue.TriggerAsync(workflowName, "webhook", request?.Params);
@@ -801,11 +803,11 @@ public static class CiApi
             }
             catch (InvalidOperationException ex)
             {
-                if (ex.Message.StartsWith("Missing required parameter", StringComparison.Ordinal))
+                if (ex is MissingParametersException)
                     return Results.BadRequest(new { message = ex.Message });
                 if (ex is WorkflowDisabledException)
                     return Results.Conflict(new { message = ex.Message });
-                return Results.NotFound(new { message = $"Unknown workflow '{workflowName}'." });
+                return Results.NotFound(new { message = Msg.T($"Unknown workflow '{workflowName}'.", $"未知任务「{workflowName}」。") });
             }
         }).AllowAnonymous();
     }

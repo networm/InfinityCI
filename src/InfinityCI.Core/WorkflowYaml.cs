@@ -29,11 +29,11 @@ public static class WorkflowYaml
         }
         catch (YamlException e)
         {
-            throw new WorkflowYamlException($"Invalid YAML: {e.Message}", e);
+            throw new WorkflowYamlException(Msg.T($"Invalid YAML: {e.Message}", $"无效的 YAML：{e.Message}"), e);
         }
 
         if (dto is null || string.IsNullOrWhiteSpace(dto.Name))
-            throw new WorkflowYamlException($"Workflow 'name' is required.");
+            throw new WorkflowYamlException(Msg.T("Workflow 'name' is required.", "缺少 name 字段。"));
 
         Dictionary<string, WorkflowJob> jobs;
         if (dto.Jobs is { Count: > 0 })
@@ -42,8 +42,8 @@ public static class WorkflowYaml
             foreach (var (key, jobDto) in dto.Jobs)
             {
                 if (jobDto is null)
-                    throw new WorkflowYamlException($"Job '{key}' is empty.");
-                jobs[key] = ToJob(jobDto, $"Job '{key}'");
+                    throw new WorkflowYamlException(Msg.T($"Job '{key}' is empty.", $"任务「{key}」为空。"));
+                jobs[key] = ToJob(jobDto, $"Job '{key}'", $"任务「{key}」");
             }
             ValidateNeeds(jobs);
         }
@@ -57,12 +57,14 @@ public static class WorkflowYaml
                     RunsOn = dto.RunsOn,
                     Env = dto.Env,
                     Steps = dto.Steps,
-                }, "Workflow"),
+                }, "Workflow", "任务"),
             };
         }
         else
         {
-            throw new WorkflowYamlException($"Workflow '{dto.Name}' must define 'jobs' (or legacy top-level 'steps').");
+            throw new WorkflowYamlException(Msg.T(
+                $"Workflow '{dto.Name}' must define 'jobs' (or legacy top-level 'steps').",
+                $"任务「{dto.Name}」必须定义 jobs（或旧版顶层 steps）。"));
         }
 
         var paramList = ParseParams(dto.Params);
@@ -83,17 +85,21 @@ public static class WorkflowYaml
         };
     }
 
-    private static WorkflowJob ToJob(JobDto dto, string context)
+    private static WorkflowJob ToJob(JobDto dto, string contextEn, string contextZh)
     {
         if (dto.Steps is null || dto.Steps.Count == 0)
-            throw new WorkflowYamlException($"{context} must define at least one step.");
+            throw new WorkflowYamlException(Msg.T(
+                $"{contextEn} must define at least one step.",
+                $"{contextZh} 至少需要定义一个步骤。"));
 
         var steps = new List<JobStep>(dto.Steps.Count);
         for (var i = 0; i < dto.Steps.Count; i++)
         {
             var s = dto.Steps[i];
             if (s is null || string.IsNullOrWhiteSpace(s.Command))
-                throw new WorkflowYamlException($"{context} step {i + 1} is missing 'command'.");
+                throw new WorkflowYamlException(Msg.T(
+                    $"{contextEn} step {i + 1} is missing 'command'.",
+                    $"{contextZh} 的步骤 {i + 1} 缺少 'command'。"));
             steps.Add(new JobStep
             {
                 Name = string.IsNullOrWhiteSpace(s.Name) ? $"step {i + 1}" : s.Name.Trim(),
@@ -121,9 +127,9 @@ public static class WorkflowYaml
             foreach (var need in job.Needs)
             {
                 if (need.Equals(key, StringComparison.OrdinalIgnoreCase))
-                    throw new WorkflowYamlException($"Job '{key}' cannot depend on itself.");
+                    throw new WorkflowYamlException(Msg.T($"Job '{key}' cannot depend on itself.", $"任务「{key}」不能依赖自身。"));
                 if (!jobs.ContainsKey(need))
-                    throw new WorkflowYamlException($"Job '{key}' needs unknown job '{need}'.");
+                    throw new WorkflowYamlException(Msg.T($"Job '{key}' needs unknown job '{need}'.", $"任务「{key}」依赖了不存在的任务「{need}」。"));
             }
         }
 
@@ -139,7 +145,9 @@ public static class WorkflowYaml
             switch (state.GetValueOrDefault(key))
             {
                 case Visiting:
-                    throw new WorkflowYamlException($"Job dependency cycle detected involving '{key}'.");
+                    throw new WorkflowYamlException(Msg.T(
+                        $"Job dependency cycle detected involving '{key}'.",
+                        $"检测到任务依赖循环，涉及「{key}」。"));
                 case Done:
                     return;
             }
@@ -160,7 +168,9 @@ public static class WorkflowYaml
         foreach (var (name, value) in raw)
         {
             if (string.IsNullOrWhiteSpace(name) || !name.All(c => char.IsLetterOrDigit(c) || c == '_'))
-                throw new WorkflowYamlException($"Parameter name '{name}' is invalid; use letters, digits and underscores only.");
+                throw new WorkflowYamlException(Msg.T(
+                    $"Parameter name '{name}' is invalid; use letters, digits and underscores only.",
+                    $"参数名「{name}」无效，只能使用字母、数字和下划线。"));
 
             WorkflowParam param;
             if (value is string defaultValue)

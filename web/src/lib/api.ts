@@ -1,3 +1,4 @@
+import i18n from "../i18n";
 import type {
   AgentEnrollment,
   AgentInfo,
@@ -19,7 +20,8 @@ export class UnauthorizedError extends Error {}
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json" },
+    // Ask the server for messages in the language currently selected in the UI.
+    headers: { "Content-Type": "application/json", "Accept-Language": i18n.language },
     ...init,
   });
   if (res.status === 401) {

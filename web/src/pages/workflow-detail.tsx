@@ -211,8 +211,8 @@ export function WorkflowDetailPage() {
               <thead>
                 <tr className="border-b border-line bg-canvas-subtle text-left text-xs text-fg-muted">
                   <th className="w-10 px-3 py-2">{t("columns.status")}</th>
-                  <th className="px-3 py-2">Run</th>
-                  <th className="px-3 py-2">Jobs</th>
+                  <th className="px-3 py-2">{t("columns.run")}</th>
+                  <th className="px-3 py-2">{t("columns.jobs")}</th>
                   <th className="px-3 py-2">{t("columns.triggeredBy")}</th>
                   <th className="px-3 py-2">{t("columns.time")}</th>
                   <th className="px-3 py-2">{t("columns.duration")}</th>

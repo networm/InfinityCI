@@ -250,7 +250,7 @@ export function BuildDetailPage() {
                 <StatusIcon status={job.status} size={14} />
                 <span className="truncate">{job.jobKey}</span>
                 <span className="ml-auto text-xs text-fg-muted">
-                  {job.runsOn.startsWith("agent") ? "Agent" : t("runDetail.local")}
+                  {job.runsOn.startsWith("agent") ? t("editor.runsOnAgent") : t("runDetail.local")}
                 </span>
               </button>
             ))}

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json.Serialization;
 using InfinityCI.Server;
 using InfinityCI.Server.Agents;
@@ -13,12 +14,17 @@ using InfinityCI.Server.Storage;
 using static InfinityCI.Server.Storage.DbMigrator;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Localization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Background threads (run execution, git fetch) have no Accept-Language header;
+// their user-visible messages follow the server default (Chinese).
+CultureInfo.DefaultThreadCurrentUICulture = new CultureInfo("zh");
 
 // gRPC requires HTTP/2; Kestrel plaintext endpoints default to HTTP/1.1, so the
 // agent gRPC service gets a dedicated HTTP/2 (h2c) port while the web app keeps
@@ -153,6 +159,15 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseSerilogRequestLogging();
+
+// Pick up the UI language from the Accept-Language header sent by the SPA so
+// API error/validation messages match the language selected in the UI.
+app.UseRequestLocalization(new RequestLocalizationOptions
+{
+    DefaultRequestCulture = new RequestCulture("zh"),
+    SupportedCultures = [new CultureInfo("en"), new CultureInfo("zh")],
+    SupportedUICultures = [new CultureInfo("en"), new CultureInfo("zh")],
+});
 
 // Serve the built SPA when present (production/published layout uses wwwroot).
 var ciOptions = app.Services.GetRequiredService<CiServerOptions>();

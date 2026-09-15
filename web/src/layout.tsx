@@ -64,7 +64,15 @@ export function AppLayout() {
             <LanguageToggle dark />
             <span className="text-white/80" title={me?.username}>
               {(me && resolveName(me.username)) || me?.username}
-              <span className="ml-1.5 rounded bg-white/15 px-1.5 py-0.5 text-xs">{me?.role}</span>
+              <span className="ml-1.5 rounded bg-white/15 px-1.5 py-0.5 text-xs">
+                {me?.role === "SuperAdmin"
+                  ? t("admin.roleSuperAdmin")
+                  : me?.role === "Admin"
+                    ? t("admin.roleAdmin")
+                    : me
+                      ? t("admin.roleUser")
+                      : null}
+              </span>
             </span>
             <button
               type="button"

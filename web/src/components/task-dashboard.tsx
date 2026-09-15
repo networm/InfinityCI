@@ -282,7 +282,7 @@ function WorkflowRow({
         className="ml-2 flex shrink-0 items-center gap-1 rounded-md bg-success-btn px-2.5 py-1.5 text-xs font-medium text-white hover:bg-success-btn-hover disabled:cursor-not-allowed disabled:bg-dim disabled:opacity-60"
       >
         <Play size={12} />
-        Run
+        {t("common.run")}
       </button>
     </div>
   );

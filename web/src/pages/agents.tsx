@@ -66,7 +66,7 @@ export function AgentsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Agents</h1>
+      <h1 className="text-xl font-semibold">{t("nav.agents")}</h1>
       {message && (
         <div className="rounded-md border border-danger-line bg-danger-subtle px-3 py-2 text-sm text-danger">{message}</div>
       )}
@@ -83,11 +83,11 @@ export function AgentsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-line bg-canvas-subtle text-left text-xs text-fg-muted">
-                  <th className="px-4 py-2">Agent</th>
+                  <th className="px-4 py-2">{t("columns.agent")}</th>
                   <th className="px-4 py-2">{t("columns.status")}</th>
                   <th className="px-4 py-2">{t("columns.version")}</th>
-                  <th className="px-4 py-2">Jobs</th>
-                  <th className="px-4 py-2">CPU</th>
+                  <th className="px-4 py-2">{t("columns.jobs")}</th>
+                  <th className="px-4 py-2">{t("columns.cpu")}</th>
                   <th className="px-4 py-2">{t("columns.memory")}</th>
                 </tr>
               </thead>

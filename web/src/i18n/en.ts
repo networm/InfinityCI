@@ -57,6 +57,10 @@ const en = {
     displayName: "Display name",
     role: "Role",
     visibleProjects: "Visible projects",
+    run: "Run",
+    jobs: "Jobs",
+    cpu: "CPU",
+    agent: "Agent",
   },
   login: {
     prompt: "Sign in to continue",

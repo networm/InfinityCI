@@ -29,7 +29,9 @@ public static class GitSourceFetcher
             using (var repo = new Repository(workspace))
             {
                 var remote = repo.Network.Remotes["origin"]
-                    ?? throw new InvalidOperationException("Workspace repository has no 'origin' remote.");
+                    ?? throw new InvalidOperationException(Msg.T(
+                        "Workspace repository has no 'origin' remote.",
+                        "工作区仓库没有配置 origin 远程。"));
                 log?.Invoke("[server] fetching origin...");
                 var refSpecs = remote.FetchRefSpecs.Select(x => x.Specification).ToArray();
                 Commands.Fetch(repo, remote.Name, refSpecs, FetchOptions(credential), "fetch for build");
@@ -58,7 +60,9 @@ public static class GitSourceFetcher
         if (scm.Ref is { } reference)
         {
             var commit = repo.Lookup<Commit>(reference)
-                ?? throw new InvalidOperationException($"Ref '{reference}' not found in the source repository.");
+                ?? throw new InvalidOperationException(Msg.T(
+                    $"Ref '{reference}' not found in the source repository.",
+                    $"源仓库中找不到 Ref「{reference}」。"));
             Commands.Checkout(repo, commit, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
             log?.Invoke($"[server] checked out {commit.Sha[..10]} (ref {reference}).");
             return new CheckoutResult(commit.Sha, $"ref {reference}");
@@ -67,10 +71,14 @@ public static class GitSourceFetcher
         if (scm.Branch is { } branchName)
         {
             var remoteBranch = repo.Branches.FirstOrDefault(b => b.FriendlyName == $"origin/{branchName}")
-                ?? throw new InvalidOperationException($"Branch '{branchName}' not found on origin.");
+                ?? throw new InvalidOperationException(Msg.T(
+                    $"Branch '{branchName}' not found on origin.",
+                    $"在 origin 上找不到分支「{branchName}」。"));
             // Checking out a remote branch creates a local tracking branch automatically.
             Commands.Checkout(repo, remoteBranch, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
-            var tip = remoteBranch.Tip ?? throw new InvalidOperationException($"Branch '{branchName}' has no commits.");
+            var tip = remoteBranch.Tip ?? throw new InvalidOperationException(Msg.T(
+                $"Branch '{branchName}' has no commits.",
+                $"分支「{branchName}」没有任何提交。"));
             log?.Invoke($"[server] checked out {tip.Sha[..10]} on branch {branchName}.");
             return new CheckoutResult(tip.Sha, branchName);
         }
@@ -95,7 +103,9 @@ public static class GitSourceFetcher
             return new CheckoutResult(defaultTip.Sha, defaultName);
         }
 
-        var head = repo.Head.Tip ?? throw new InvalidOperationException("The source repository has no commits.");
+        var head = repo.Head.Tip ?? throw new InvalidOperationException(Msg.T(
+            "The source repository has no commits.",
+            "源仓库没有任何提交。"));
         Commands.Checkout(repo, head, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
         log?.Invoke($"[server] checked out {head.Sha[..10]} (default branch).");
         return new CheckoutResult(head.Sha, "default");
