@@ -16,6 +16,7 @@ export function QueuePage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [tick, setTick] = useState(0); // re-renders wait durations between polls
+  void tick;
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
