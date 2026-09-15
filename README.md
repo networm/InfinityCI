@@ -54,3 +54,86 @@ jobs:
 | `src/InfinityCI.Server` | Web + REST + SignalR（5000）、Agent gRPC（5001）、并行调度引擎 |
 | `src/InfinityCI.Agent` | Agent 进程：注册/心跳/拉取式领任务/远程执行 |
 | `web` | React 19 + Rsbuild + Tailwind 前端（GitHub Actions 风格） |
+
+## 技术栈与依赖
+
+所有依赖版本均已固定（前端精确到补丁号，.NET 由 `global.json` 与精确的 `PackageReference` 固定）。
+
+### 运行环境要求
+
+| 依赖 | 版本 | 说明 |
+| --- | --- | --- |
+| .NET SDK | 10.0.401 | 由 `global.json` 固定（rollForward=latestFeature）；目标框架 net10.0 |
+| Node.js | ≥ 20 | 开发环境验证于 26.x |
+| npm | ≥ 10 | 开发环境验证于 11.x |
+| Git | 任意近期版本 | 任务配置仓库（历史/回滚/克隆）依赖 |
+
+### .NET NuGet 包
+
+**InfinityCI.Core（共享库）**
+
+| 包 | 版本 | 用途 |
+| --- | --- | --- |
+| Google.Protobuf | 3.36.1 | gRPC 协议消息序列化 |
+| Grpc.Core.Api | 2.83.0 | gRPC 公共 API |
+| Grpc.Tools | 2.83.0 | Protobuf 编译（仅编译期） |
+| LibGit2Sharp | 0.32.0 | Git 检出 / 配置仓库 / SCM 集成 |
+| YamlDotNet | 18.1.0 | 工作流 YAML 解析 |
+
+**InfinityCI.Server**
+
+| 包 | 版本 | 用途 |
+| --- | --- | --- |
+| Grpc.AspNetCore | 2.83.0 | Agent gRPC 服务（端口 5001） |
+| Microsoft.EntityFrameworkCore.Sqlite | 10.0.12 | SQLite 持久化 |
+| Serilog.AspNetCore | 10.0.0 | 结构化日志 |
+| System.DirectoryServices.Protocols | 10.0.12 | LDAP 认证 |
+
+**InfinityCI.Agent**
+
+| 包 | 版本 | 用途 |
+| --- | --- | --- |
+| Grpc.Net.Client | 2.83.0 | 与 Master 的 gRPC 通信 |
+| Microsoft.Extensions.Hosting | 10.0.12 | Worker 服务宿主 |
+
+**测试项目**
+
+| 包 | 版本 | 用途 |
+| --- | --- | --- |
+| xunit / xunit.runner.visualstudio | 2.9.3 / 3.1.4 | 单元与集成测试 |
+| Microsoft.NET.Test.Sdk | 17.14.1 | 测试平台 |
+| coverlet.collector | 6.0.4 | 覆盖率收集 |
+| Microsoft.AspNetCore.Mvc.Testing | 10.0.12 | WebApplicationFactory 集成测试 |
+| Microsoft.AspNetCore.SignalR.Client | 10.0.12 | SignalR 端到端测试客户端 |
+
+### 前端依赖（web/）
+
+**运行时依赖**
+
+| 包 | 版本 | 用途 |
+| --- | --- | --- |
+| react / react-dom | 19.2.8 | UI 框架 |
+| @tanstack/react-router | 1.170.33 | 类型安全路由 |
+| @tanstack/react-query | 5.102.8 | 服务端状态管理 |
+| @microsoft/signalr | 10.0.11 | 实时推送客户端（每标签页独立连接） |
+| @xterm/xterm + @xterm/addon-fit | 6.0.0 / 0.11.0 | 构建日志终端 |
+| zustand | 5.0.15 | 轻量客户端状态 |
+| js-yaml | 5.4.1 | 任务编辑器 YAML 往返 |
+| lucide-react | 1.43.0 | 图标 |
+| i18next / react-i18next | 26.4.2 / 17.0.13 | 国际化 |
+| clsx + tailwind-merge | 2.1.1 / 3.6.0 | 样式工具 |
+| class-variance-authority | 0.7.1 | 组件变体 |
+
+**开发依赖**
+
+| 包 | 版本 | 用途 |
+| --- | --- | --- |
+| @rsbuild/core + @rsbuild/plugin-react | 2.2.5 / 2.1.0 | 构建（Rspack，dev 端口 3000，代理 /api 与 /hubs 到 5000） |
+| typescript | 7.0.2 | 类型检查（`npm run typecheck`） |
+| tailwindcss + @tailwindcss/postcss | 4.3.3 | Tailwind CSS v4（PostCSS 集成） |
+| @types/react / @types/react-dom / @types/node / @types/js-yaml | 19.2.18 / 19.2.7 / 26.5.0 / 4.0.9 | 类型声明 |
+
+### 构建与发布
+
+- 前端：`npm run dev`（开发热更新）/ `npm run build`（产物输出 `dist/`，由 Server 托管）
+- 后端：`scripts/start-server.cmd` / `scripts/start-agent.cmd`；`scripts/publish.cmd` 发布 win-x64 自包含单文件 EXE 到 `publish/`
