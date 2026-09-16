@@ -38,6 +38,8 @@ public class NeedsSchedulingTests : IDisposable
         var logStore = new JobLogStore(_options);
         var registry = new AgentRegistry(NullLogger<AgentRegistry>.Instance);
         var localQueue = new LocalJobRunQueue();
+        var credentialStore = new CredentialStore(_provider.GetRequiredService<IServiceScopeFactory>(),
+            new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider().CreateProtector("test"));
         var aggregator = new RunAggregator(
             _provider.GetRequiredService<IServiceScopeFactory>(),
             _workflowStore,
@@ -45,10 +47,9 @@ public class NeedsSchedulingTests : IDisposable
             logStore,
             registry,
             localQueue,
+            TestEnv.CreateCommitStatusReporter(credentialStore),
             NullLogger<RunAggregator>.Instance);
-        var credentialStore = new CredentialStore(_provider.GetRequiredService<IServiceScopeFactory>(),
-            new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider().CreateProtector("test"));
-        var executor = new JobRunExecutor(Options.Create(_options), logStore, _events, credentialStore, _provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<JobRunExecutor>.Instance);
+        var executor = new JobRunExecutor(Options.Create(_options), logStore, _events, credentialStore, TestEnv.CreateCommitStatusReporter(credentialStore), _provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<JobRunExecutor>.Instance);
         var workflowControl = new WorkflowControlService(_provider.GetRequiredService<IServiceScopeFactory>(), _workflowStore, new ChangeEvents(NullLogger<ChangeEvents>.Instance), NullLogger<WorkflowControlService>.Instance);
         _queue = new RunQueueService(
             Options.Create(_options),

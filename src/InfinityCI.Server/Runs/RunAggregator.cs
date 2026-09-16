@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using InfinityCI.Core;
 using InfinityCI.Server.Agents;
 using InfinityCI.Server.Jobs;
+using InfinityCI.Server.Scm;
 using InfinityCI.Server.Storage;
 
 namespace InfinityCI.Server.Runs;
@@ -20,6 +21,7 @@ public sealed class RunAggregator(
     JobLogStore logStore,
     AgentRegistry registry,
     LocalJobRunQueue localQueue,
+    CommitStatusReporter commitStatus,
     ILogger<RunAggregator> logger)
 {
     // Evaluations mutate shared run state (cascade skips, dispatch); concurrent
@@ -181,10 +183,31 @@ public sealed class RunAggregator(
         run.Status = next;
         run.StartedAt ??= jobRuns.Where(j => j.StartedAt is not null).Select(j => j.StartedAt).Min() ?? run.CreatedAt;
         if (next is RunStatus.Success or RunStatus.Failed or RunStatus.Cancelled)
+        {
             run.FinishedAt = jobRuns.Where(j => j.FinishedAt is not null).Select(j => j.FinishedAt).Max();
+            TryReportCommitStatus(run, jobRuns);
+        }
         await repo.SaveRunTransitionAsync(run);
         await events.PublishRunUpdatedAsync(run);
         logger.LogInformation("Run {RunId} for workflow {Workflow} is now {Status}", run.Id, run.WorkflowName, next);
     }
 
+    /// <summary>Fire-and-forget commit status report for `commit_status: true` workflows.</summary>
+    private void TryReportCommitStatus(Run run, List<JobRun> jobRuns)
+    {
+        try
+        {
+            var scm = workflowStore.TryGet(run.WorkflowName)?.Scm;
+            if (scm is not { CommitStatus: true })
+                return;
+            var sha = jobRuns.FirstOrDefault(j => !string.IsNullOrEmpty(j.CommitSha))?.CommitSha;
+            if (string.IsNullOrEmpty(sha))
+                return;
+            _ = commitStatus.ReportFinalAsync(scm, run.Id, run.WorkflowName, run.RunNumber, sha, run.Status);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to report commit status for run {RunId}", run.Id);
+        }
+    }
 }

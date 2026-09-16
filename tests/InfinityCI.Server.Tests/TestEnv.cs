@@ -1,10 +1,36 @@
 using System.Diagnostics;
+using System.Net;
 using System.Text.RegularExpressions;
+using InfinityCI.Server.Auth;
+using InfinityCI.Server.Scm;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace InfinityCI.Server.Tests;
 
 internal static class TestEnv
 {
+    /// <summary>A CommitStatusReporter whose HTTP calls would fail loudly — tests
+    /// using it never enable commit_status, so no request is ever made.</summary>
+    public static CommitStatusReporter CreateCommitStatusReporter(CredentialStore credentialStore) =>
+        new(
+            new FailingHttpClientFactory(),
+            credentialStore,
+            Options.Create(new CiServerOptions { DataDir = "." }),
+            NullLogger<CommitStatusReporter>.Instance);
+
+    private sealed class FailingHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) =>
+            new(new HttpClientHandlerStub());
+    }
+
+    private sealed class HttpClientHandlerStub : HttpClientHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError));
+    }
+
     /// <summary>Writes a workflow config in the task-first layout:
     /// {dataDir}/{sanitized workflow name}/workflow.yml (derived from the YAML's name field).</summary>
     public static string WriteWorkflow(string dataDir, string yaml)

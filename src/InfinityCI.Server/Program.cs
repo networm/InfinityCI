@@ -99,6 +99,7 @@ builder.Services.AddHttpClient("wecom");
 builder.Services.AddSingleton<WorkflowControlService>();
 builder.Services.AddSingleton<WeComNotifier>();
 builder.Services.AddSingleton<CredentialStore>();
+builder.Services.AddSingleton<InfinityCI.Server.Scm.CommitStatusReporter>();
 builder.Services.AddSingleton<RunEvents>();
 builder.Services.AddSingleton<ChangeEvents>();
 builder.Services.AddSingleton<JobLogStore>();

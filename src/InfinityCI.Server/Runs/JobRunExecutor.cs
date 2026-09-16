@@ -17,6 +17,7 @@ public sealed class JobRunExecutor(
     JobLogStore logStore,
     RunEvents events,
     CredentialStore credentialStore,
+    Scm.CommitStatusReporter commitStatus,
     IServiceScopeFactory scopeFactory,
     ILogger<JobRunExecutor> logger)
 {
@@ -49,6 +50,8 @@ public sealed class JobRunExecutor(
                 jobRun.CommitSha = checkout.CommitSha;
                 await repo.SaveJobRunTransitionAsync(jobRun, CancellationToken.None);
                 await events.PublishJobRunUpdatedAsync(jobRun);
+                if (scm.CommitStatus && checkout.CommitSha is { } sha)
+                    _ = commitStatus.ReportPendingAsync(scm, jobRun.RunId, workflow, runNumber, sha);
             }
             catch (OperationCanceledException)
             {

@@ -83,6 +83,7 @@ public static class WorkflowYaml
                 Branch = string.IsNullOrWhiteSpace(dto.Scm.Branch) ? null : dto.Scm.Branch.Trim(),
                 Ref = string.IsNullOrWhiteSpace(dto.Scm.Ref) ? null : dto.Scm.Ref.Trim(),
                 Credentials = string.IsNullOrWhiteSpace(dto.Scm.Credentials) ? null : dto.Scm.Credentials.Trim(),
+                CommitStatus = dto.Scm.CommitStatus == true,
             },
             Jobs = jobs,
         };
@@ -255,6 +256,7 @@ public static class WorkflowYaml
         public string? Branch { get; set; }
         public string? Ref { get; set; }
         public string? Credentials { get; set; }
+        public bool? CommitStatus { get; set; }
     }
 
     private sealed class WorkflowYamlDto

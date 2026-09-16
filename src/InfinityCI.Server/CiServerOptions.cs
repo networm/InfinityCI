@@ -13,6 +13,10 @@ public sealed class CiServerOptions
     /// <summary>Write the sample workflow when no workflows exist (tests disable this).</summary>
     public bool CreateSampleWorkflow { get; set; } = true;
 
+    /// <summary>Absolute base URL of this server, used in links sent to external systems
+    /// (commit-status target_url, notifications); null = links are omitted.</summary>
+    public string? PublicOrigin { get; set; }
+
     public string JobsDir => Path.Combine(DataDir, "jobs");
     public string LogsDir => Path.Combine(DataDir, "logs");
     public string WorkspacesDir => Path.Combine(DataDir, "workspaces");
