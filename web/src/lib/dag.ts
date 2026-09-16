@@ -87,6 +87,57 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
   };
   keys.forEach(computeHeight);
 
+  // Jobs split into connected components over (undirected) needs edges — a
+  // root and everything downstream of it. Each component gets its own band
+  // of lanes: the fullest component rides the top, an independent root like
+  // a fire-and-forget failure job ends up ALONE on its own row, visually
+  // detached from the chains it has no dependency with.
+  const compOf = new Map<string, number>();
+  let compCount = 0;
+  for (const key of keys) {
+    if (compOf.has(key)) continue;
+    const stack = [key];
+    compOf.set(key, compCount);
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      for (const need of byKey.get(cur)!.needs) {
+        if (!compOf.has(need)) {
+          compOf.set(need, compCount);
+          stack.push(need);
+        }
+      }
+      for (const dep of dependents.get(cur) ?? []) {
+        if (!compOf.has(dep)) {
+          compOf.set(dep, compCount);
+          stack.push(dep);
+        }
+      }
+    }
+    compCount += 1;
+  }
+  const compBase: number[] = [];
+  const compLimit: number[] = []; // exclusive upper bound of the band
+  {
+    const compHeight = Array.from({ length: compCount }, () => 0);
+    const compLayerCount = Array.from({ length: compCount }, () => new Map<number, number>());
+    for (const key of keys) {
+      const c = compOf.get(key)!;
+      const layer = layerOf.get(key)!;
+      compHeight[c] = Math.max(compHeight[c], heightOf.get(key) ?? 0);
+      compLayerCount[c].set(layer, (compLayerCount[c].get(layer) ?? 0) + 1);
+    }
+    const compWidth = compLayerCount.map((m) => Math.max(1, ...m.values()));
+    const order = Array.from({ length: compCount }, (_, c) => c).sort(
+      (a, b) => compHeight[b] - compHeight[a],
+    );
+    let cursor = 0;
+    for (const c of order) {
+      compBase[c] = cursor;
+      compLimit[c] = cursor + compWidth[c];
+      cursor += compWidth[c];
+    }
+  }
+
   // Lane assignment: jobs prefer the lane of one of their needs (a branch
   // keeps its own horizontal row), otherwise they take the LOWEST free lane
   // in their layer. This packs parallel branches tightly under the spine, so
@@ -124,6 +175,7 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
       const needs = byKey.get(key)!.needs;
       // Continue on a parent's lane when one is free — at the LOWEST free
       // parent lane, so chains pack upward and the top row stays the fullest.
+      const comp = compOf.get(key)!;
       const freePreferred = needs
         .filter((n) => laneOf.has(n))
         .map((n) => laneOf.get(n)!)
@@ -131,7 +183,8 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
         .sort((a, b) => a - b);
       let lane = freePreferred[0] ?? -1;
       if (lane < 0) {
-        for (let l = 0; lane < 0; l++) {
+        // Fall back to the lowest free lane inside the component's own band.
+        for (let l = compBase[comp]; l < compLimit[comp] && lane < 0; l++) {
           if (!usedThisLayer.has(l)) lane = l;
         }
       }
