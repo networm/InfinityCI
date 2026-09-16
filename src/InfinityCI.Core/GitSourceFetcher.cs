@@ -1,4 +1,5 @@
-using LibGit2Sharp;
+using System.Diagnostics;
+using System.Text;
 
 namespace InfinityCI.Core;
 
@@ -6,6 +7,9 @@ namespace InfinityCI.Core;
 /// Ensures a job workspace contains a checkout of the workflow's Git source:
 /// clones when the directory is fresh, otherwise fetches and hard-resets to
 /// the requested branch/ref. Returns the checked-out commit and branch.
+/// Implemented with the git CLI (LibGit2Sharp remains reserved for the
+/// workflow config repositories) so very large source repositories stay fast
+/// and memory-friendly on agents and the server alike.
 /// </summary>
 public static class GitSourceFetcher
 {
@@ -22,119 +26,123 @@ public static class GitSourceFetcher
         if (!isRepo)
         {
             log?.Invoke($"[server] cloning {scm.Url} into the workspace...");
-            Clone(scm, workspace, credential);
+            // --no-checkout mirrors the old CloneOptions.Checkout=false: the
+            // exact branch/ref is checked out afterwards in one code path
+            // (so unknown branches get a clean error).
+            RunGit(workspace, scm.Url, credential, "clone", "--no-checkout", scm.Url, ".");
         }
         else
         {
-            using (var repo = new Repository(workspace))
-            {
-                var remote = repo.Network.Remotes["origin"]
-                    ?? throw new InvalidOperationException(Msg.T(
-                        "Workspace repository has no 'origin' remote.",
-                        "工作区仓库没有配置 origin 远程。"));
-                log?.Invoke("[server] fetching origin...");
-                var refSpecs = remote.FetchRefSpecs.Select(x => x.Specification).ToArray();
-                Commands.Fetch(repo, remote.Name, refSpecs, FetchOptions(credential), "fetch for build");
-            }
+            log?.Invoke("[server] fetching origin...");
+            RunGit(workspace, scm.Url, credential, "fetch", "--prune", "origin");
         }
 
-        using var repository = new Repository(workspace);
-        return CheckoutTarget(repository, scm, log);
-    }
-
-    private static void Clone(ScmConfig scm, string workspace, GitCredential? credential)
-    {
-        // Clone the default branch only; the exact branch/ref is checked out
-        // afterwards in one code path (so unknown branches get a clean error).
-        var options = new CloneOptions
-        {
-            Checkout = false,
-            FetchOptions = { CredentialsProvider = CredentialProvider(credential) },
-        };
-        Repository.Clone(scm.Url, workspace, options);
+        return CheckoutTarget(scm, workspace, credential, log);
     }
 
     /// <summary>Checks out the configured ref/branch and reports commit + branch name.</summary>
-    private static CheckoutResult CheckoutTarget(Repository repo, ScmConfig scm, Action<string>? log)
+    private static CheckoutResult CheckoutTarget(ScmConfig scm, string workspace, GitCredential? credential, Action<string>? log)
     {
         if (scm.Ref is { } reference)
         {
-            var commit = repo.Lookup<Commit>(reference)
-                ?? throw new InvalidOperationException(Msg.T(
+            if (TryGit(workspace, scm.Url, credential, "rev-parse", "--verify", "--quiet", $"{reference}^{{commit}}") is null)
+                throw new InvalidOperationException(Msg.T(
                     $"Ref '{reference}' not found in the source repository.",
                     $"源仓库中找不到 Ref「{reference}」。"));
-            Commands.Checkout(repo, commit, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
-            log?.Invoke($"[server] checked out {commit.Sha[..10]} (ref {reference}).");
-            return new CheckoutResult(commit.Sha, $"ref {reference}");
+            RunGit(workspace, scm.Url, credential, "checkout", "--force", reference);
+            var refSha = HeadSha(workspace, scm.Url, credential);
+            log?.Invoke($"[server] checked out {refSha[..10]} (ref {reference}).");
+            return new CheckoutResult(refSha, $"ref {reference}");
         }
 
         if (scm.Branch is { } branchName)
         {
-            var remoteBranch = repo.Branches.FirstOrDefault(b => b.FriendlyName == $"origin/{branchName}")
-                ?? throw new InvalidOperationException(Msg.T(
+            var remoteBranch = $"origin/{branchName}";
+            if (TryGit(workspace, scm.Url, credential, "rev-parse", "--verify", "--quiet", remoteBranch) is null)
+                throw new InvalidOperationException(Msg.T(
                     $"Branch '{branchName}' not found on origin.",
                     $"在 origin 上找不到分支「{branchName}」。"));
-            // Checking out a remote branch creates a local tracking branch automatically.
-            Commands.Checkout(repo, remoteBranch, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
-            var tip = remoteBranch.Tip ?? throw new InvalidOperationException(Msg.T(
-                $"Branch '{branchName}' has no commits.",
-                $"分支「{branchName}」没有任何提交。"));
-            log?.Invoke($"[server] checked out {tip.Sha[..10]} on branch {branchName}.");
-            return new CheckoutResult(tip.Sha, branchName);
+            // Reset/create a local branch on the remote tip (tracking it), the
+            // CLI equivalent of checking out a remote branch.
+            RunGit(workspace, scm.Url, credential, "checkout", "--force", "-B", branchName, "--track", remoteBranch);
+            var branchSha = HeadSha(workspace, scm.Url, credential);
+            log?.Invoke($"[server] checked out {branchSha[..10]} on branch {branchName}.");
+            return new CheckoutResult(branchSha, branchName);
         }
 
-        // No branch configured: follow origin's HEAD (fetch updates remote-tracking
-        // refs but NOT local branches, so the remote tip is authoritative).
-        var defaultBranch = repo.Refs["refs/remotes/origin/HEAD"] switch
+        // No branch configured: follow origin's HEAD (clone records it as a
+        // symbolic ref; fetch keeps it authoritative).
+        var headRef = TryGit(workspace, scm.Url, credential, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD");
+        var defaultName = headRef is null ? null : headRef["refs/remotes/origin/".Length..];
+        if (defaultName is { Length: > 0 } name)
         {
-            SymbolicReference sym => repo.Branches[BranchFriendlyName(sym.Target.CanonicalName)],
-            // Direct origin/HEAD: find the remote branch pointing at the same commit.
-            DirectReference direct => repo.Branches
-                .FirstOrDefault(b => b.FriendlyName.StartsWith("origin/", StringComparison.Ordinal)
-                                     && b.Tip is not null && b.Tip.Sha == direct.TargetIdentifier),
-            _ => null,
-        };
-        var defaultName = defaultBranch is null ? null : BranchStripOrigin(defaultBranch.FriendlyName);
-        if (defaultBranch?.Tip is { } defaultTip)
-        {
-            Commands.Checkout(repo, defaultBranch, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
-            defaultName ??= "default";
-            log?.Invoke($"[server] checked out {defaultTip.Sha[..10]} on branch {defaultName}.");
-            return new CheckoutResult(defaultTip.Sha, defaultName);
+            RunGit(workspace, scm.Url, credential, "checkout", "--force", "-B", name, "--track", $"origin/{name}");
         }
-
-        var head = repo.Head.Tip ?? throw new InvalidOperationException(Msg.T(
-            "The source repository has no commits.",
-            "源仓库没有任何提交。"));
-        Commands.Checkout(repo, head, new CheckoutOptions { CheckoutModifiers = CheckoutModifiers.Force });
-        log?.Invoke($"[server] checked out {head.Sha[..10]} (default branch).");
-        return new CheckoutResult(head.Sha, "default");
+        else
+        {
+            RunGit(workspace, scm.Url, credential, "checkout", "--force");
+            defaultName = "default";
+        }
+        var sha = HeadSha(workspace, scm.Url, credential);
+        log?.Invoke($"[server] checked out {sha[..10]} on branch {defaultName}.");
+        return new CheckoutResult(sha, defaultName);
     }
 
-    private static string BranchFriendlyName(string canonicalName) =>
-        canonicalName.StartsWith("refs/remotes/", StringComparison.Ordinal)
-            ? canonicalName["refs/remotes/".Length..]
-            : canonicalName;
+    private static string HeadSha(string workspace, string url, GitCredential? credential) =>
+        RunGit(workspace, url, credential, "rev-parse", "HEAD");
 
-    private static string BranchStripOrigin(string friendlyName) =>
-        friendlyName.StartsWith("origin/", StringComparison.Ordinal)
-            ? friendlyName["origin/".Length..]
-            : friendlyName;
-
-    private static FetchOptions FetchOptions(GitCredential? credential) => new()
+    /// <summary>Runs git and throws on failure. Network operations wait without
+    /// a timeout (large repositories may legitimately take a long time);
+    /// GIT_TERMINAL_PROMPT=0 and a disabled credential helper guarantee a
+    /// missing credential fails fast instead of prompting.</summary>
+    private static string RunGit(string workspace, string url, GitCredential? credential, params string[] args)
     {
-        CredentialsProvider = CredentialProvider(credential),
-        Prune = true,
-    };
+        var (output, exitCode, error) = Execute(workspace, url, credential, args);
+        if (exitCode != 0)
+            throw new InvalidOperationException(Msg.T(
+                $"git {args[0]} failed ({exitCode}): {error.Trim()}",
+                $"git {args[0]} 失败（{exitCode}）：{error.Trim()}"));
+        return output;
+    }
 
-    private static LibGit2Sharp.Handlers.CredentialsHandler? CredentialProvider(GitCredential? credential)
+    /// <summary>Probe variant: returns trimmed stdout, or null when git exits non-zero.</summary>
+    private static string? TryGit(string workspace, string url, GitCredential? credential, params string[] args)
     {
-        if (string.IsNullOrEmpty(credential?.Username))
-            return null;
-        return (_url, _user, _types) => new UsernamePasswordCredentials
+        var (output, exitCode, _) = Execute(workspace, url, credential, args);
+        return exitCode == 0 ? output : null;
+    }
+
+    private static (string Output, int ExitCode, string Error) Execute(
+        string workspace, string url, GitCredential? credential, string[] args)
+    {
+        var psi = new ProcessStartInfo
         {
-            Username = credential!.Username,
-            Password = credential.Password ?? "",
+            FileName = "git",
+            WorkingDirectory = workspace,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
+        // Credentials go in an extra HTTP header instead of the URL: they never
+        // touch .git/config or the process command line visible in logs.
+        psi.ArgumentList.Add("-c");
+        psi.ArgumentList.Add("credential.helper=");
+        if (credential?.Username is { Length: > 0 } user && url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        {
+            var token = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{user}:{credential.Password ?? ""}"));
+            psi.ArgumentList.Add("-c");
+            psi.ArgumentList.Add($"http.extraHeader=Authorization: Basic {token}");
+        }
+        foreach (var arg in args)
+            psi.ArgumentList.Add(arg);
+        psi.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0";
+
+        using var process = new Process { StartInfo = psi };
+        process.Start();
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        process.WaitForExit();
+        return (stdout.Result.Trim(), process.ExitCode, stderr.Result);
     }
 }
