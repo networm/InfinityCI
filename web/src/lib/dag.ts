@@ -233,50 +233,23 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
   };
   nodes.push(end);
 
-  // Cross-row edges travel through the GUTTER between lanes: exit the source
-  // with a short stub, turn into the half-lane gap, run horizontally there,
-  // then turn into the target. A long edge therefore passes UNDER/OVER the
-  // nodes between instead of running straight through them — two nodes on the
-  // same row never look like a left-to-right sequence. Same-row edges are
-  // also diverted into a gutter when other nodes sit between the endpoints.
-  // Edges sharing a gutter are staggered a few pixels apart so parallel runs
-  // stay distinguishable.
-  const GUTTER = LANE_GAP / 2;
-  const STUB = 14;
-  const TURN = 10;
+  // Horizontal-only line when both endpoints share a row; otherwise a rounded
+  // elbow: horizontal, quarter-turn, vertical, quarter-turn, horizontal.
   const maxLane = Math.max(0, ...nodes.filter((n) => n.kind === "job").map((n) => n.lane));
-  const gutterUse = new Map<string, number>();
   const elbowTo = (from: DagNode, toX: number, toCy: number): string => {
     const x1 = from.cx + DAG_RADIUS;
-    const sameRow = Math.abs(from.cy - toCy) < 1;
-    const blockedOnRow =
-      sameRow &&
-      nodes.some(
-        (n) =>
-          n.kind === "job" &&
-          n.cy === from.cy &&
-          n.cx > from.cx + DAG_RADIUS &&
-          n.cx < toX - DAG_RADIUS,
-      );
-    if (sameRow && !blockedOnRow) {
+    if (Math.abs(from.cy - toCy) < 1) {
       return `M ${x1} ${from.cy} L ${toX} ${toCy}`;
     }
-    // Route through the gutter below the source row; when there is no lane
-    // below, use the gutter above so the path stays inside the canvas.
-    const dir = sameRow ? (from.lane < maxLane ? 1 : -1) : toCy > from.cy ? 1 : -1;
-    const band = `gutter-${from.cy}|${dir}`;
-    const nth = gutterUse.get(band) ?? 0;
-    gutterUse.set(band, nth + 1);
-    const travelY = from.cy + dir * (GUTTER + nth * 8);
-    const exitTurnX = x1 + STUB;
-    const enterTurnX = Math.max(exitTurnX + 2 * TURN + 2, toX - STUB);
+    const dir = toCy > from.cy ? 1 : -1;
+    const corner = Math.min(16, Math.abs(toCy - from.cy) / 2, Math.max(8, Math.abs(toX - x1) / 2));
+    const turnX = toX - corner;
     return [
       `M ${x1} ${from.cy}`,
-      `L ${exitTurnX - TURN} ${from.cy}`,
-      `Q ${exitTurnX} ${from.cy} ${exitTurnX} ${travelY}`,
-      `L ${enterTurnX} ${travelY}`,
-      `Q ${enterTurnX} ${toCy} ${enterTurnX + TURN} ${toCy}`,
-      `L ${toX} ${toCy}`,
+      `L ${turnX - corner} ${from.cy}`,
+      `Q ${turnX} ${from.cy} ${turnX} ${from.cy + dir * corner}`,
+      `L ${turnX} ${toCy - dir * corner}`,
+      `Q ${turnX} ${toCy} ${toX} ${toCy}`,
     ].join(" ");
   };
 
