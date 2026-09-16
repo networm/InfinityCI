@@ -1,0 +1,16 @@
+name: log-stream-demo
+project: Default
+jobs:
+  stream:
+    steps:
+      - name: Stream 30 colored lines (1 per second)
+        shell: powershell
+        command: |
+          $e = [char]27
+          $colors = @('32','96','93','95','91','94')
+          for ($i = 1; $i -le 30; $i++) {
+            $c = $colors[($i - 1) % $colors.Count]
+            $ts = (Get-Date).ToString('HH:mm:ss')
+            [Console]::WriteLine("${e}[1;${c}m[tick $i/30]${e}[0m $ts - real-time colored line #$i from Windows")
+            Start-Sleep -Seconds 1
+          }

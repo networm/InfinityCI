@@ -28,7 +28,31 @@ public static class ShellResolver
                 psi.Environment[key] = value;
         }
 
+        ApplyColorDefaults(psi);
+
         return psi;
+    }
+
+    /// <summary>
+    /// Children see a redirected (non-TTY) stdout, which makes most color-aware
+    /// tools (chalk, npm, gcc, ...) turn colors off. The web console renders
+    /// ANSI escapes via xterm.js, so default these on unless the workflow set
+    /// its own value for the variable.
+    /// </summary>
+    private static void ApplyColorDefaults(ProcessStartInfo psi)
+    {
+        var defaults = new (string Key, string Value)[]
+        {
+            ("FORCE_COLOR", "1"),
+            ("CLICOLOR_FORCE", "1"),
+            ("COLORTERM", "truecolor"),
+            ("TERM", "xterm-256color"),
+        };
+        foreach (var (key, value) in defaults)
+        {
+            if (!psi.Environment.ContainsKey(key))
+                psi.Environment[key] = value;
+        }
     }
 
     private static ProcessStartInfo ResolveWindows(string? shell, string command) => shell?.Trim().ToLowerInvariant() switch

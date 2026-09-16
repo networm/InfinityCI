@@ -5,10 +5,10 @@ import { useTranslation } from "react-i18next";
 import { Link } from "@tanstack/react-router";
 
 import { StatusIcon } from "@/components/status-icon";
-import { AnsiText } from "@/lib/ansi";
+import { XtermConsole } from "@/components/xterm-console";
 import { api } from "@/lib/api";
 import { layoutDag } from "@/lib/dag";
-import { formatDuration, formatLogTimestamp } from "@/lib/format";
+import { formatDuration } from "@/lib/format";
 import { useResolveUserName } from "@/lib/user-names";
 import { getCiHub } from "@/lib/signalr";
 import { useHubEvent, useHubGroup, useReconnected } from "@/lib/live";
@@ -399,8 +399,6 @@ function StepSection({
   onToggle: () => void;
 }) {
   const { t } = useTranslation();
-  const consoleRef = useRef<HTMLDivElement | null>(null);
-  const stickToBottom = useRef(true);
 
   return (
     <div className="overflow-hidden rounded-md border border-line bg-canvas">
@@ -418,51 +416,16 @@ function StepSection({
         <span className="ml-auto text-xs text-fg-muted">{formatDuration(step.startedAt, step.finishedAt)}</span>
       </button>
       {!collapsed && (
-        <div
-          ref={consoleRef}
-          onScroll={() => {
-            const el = consoleRef.current;
-            if (!el) return;
-            stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-          }}
-          className="max-h-96 overflow-auto bg-[#0d1117] px-3 py-2 font-mono text-xs leading-5"
-        >
+        <div className="bg-[#0d1117] p-3">
           {lines.length === 0 ? (
-            <div className="text-[#7d8590]">{t("runDetail.noOutput")}</div>
+            <div className="text-xs text-[#7d8590]">{t("runDetail.noOutput")}</div>
           ) : (
-            lines.map((line) => (
-              <div key={line.line} className="flex gap-3 whitespace-pre-wrap">
-                <span className="shrink-0 select-none text-[#7d8590]">{formatLogTimestamp(line.timestampUtc)}</span>
-                <span className="text-[#c9d1d9]">
-                  <AnsiText text={line.text} />
-                </span>
-              </div>
-            ))
+            <XtermConsole lines={lines} />
           )}
-          <AutoScroll dep={lines.length} containerRef={consoleRef} stickRef={stickToBottom} />
         </div>
       )}
     </div>
   );
-}
-
-/** Keeps the console pinned to the bottom while new lines arrive, unless the user scrolled up. */
-function AutoScroll({
-  dep,
-  containerRef,
-  stickRef,
-}: {
-  dep: number;
-  containerRef: React.RefObject<HTMLDivElement | null>;
-  stickRef: React.MutableRefObject<boolean>;
-}) {
-  useEffect(() => {
-    const el = containerRef.current;
-    if (el && stickRef.current) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [dep, containerRef, stickRef]);
-  return null;
 }
 
 
