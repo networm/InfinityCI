@@ -194,6 +194,14 @@ export interface AgentEnrollment {
   usedByAgentId: string | null;
 }
 
+/** User-scoped API token metadata (the secret itself is only shown once). */
+export interface ApiTokenInfo {
+  id: number;
+  name: string;
+  createdUtc: string;
+  lastUsedUtc: string | null;
+}
+
 // ---- job editor models ----
 
 export interface EditorStep {

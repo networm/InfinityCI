@@ -60,6 +60,10 @@ public sealed class JobRun
     public long RunId { get; set; }
     public required string JobKey { get; set; }
     public required string RunsOn { get; set; }     // "local" | "agent" | "agent:<label>"
+
+    /// <summary>Project of the owning run (denormalized for visibility filtering
+    /// and event fan-out without joining Runs).</summary>
+    public string Project { get; set; } = "";
     public string? AgentId { get; set; }
 
     /// <summary>Source branch checked out by the SCM step (null when the workflow has no scm block).</summary>

@@ -16,7 +16,7 @@ public static class DbMigrator
 {
     /// <summary>Schema version of the model before RunNumber was introduced.</summary>
     public const int BaselineVersion = 5;
-    public const int LatestVersion = 6;
+    public const int LatestVersion = 7;
 
     private sealed record MigrationStep(int FromVersion, int ToVersion, string Name, Action<CiDbContext> Apply);
 
@@ -34,6 +34,25 @@ public static class DbMigrator
                 """);
             db.Database.ExecuteSqlRaw(
                 "CREATE UNIQUE INDEX IX_Runs_WorkflowName_RunNumber ON Runs (WorkflowName, RunNumber);");
+        }),
+        new(6, 7, "add JobRuns.Project, webhook signing columns and ApiTokens", db =>
+        {
+            AddColumnIfMissing(db, "JobRuns", "Project", "TEXT NOT NULL DEFAULT ''");
+            db.Database.ExecuteSqlRaw(
+                "UPDATE JobRuns SET Project = COALESCE((SELECT r.Project FROM Runs r WHERE r.Id = JobRuns.RunId), '');");
+            AddColumnIfMissing(db, "WorkflowStates", "WebhookSecret", "TEXT");
+            AddColumnIfMissing(db, "WorkflowStates", "WebhookBranches", "TEXT");
+            db.Database.ExecuteSqlRaw("""
+                CREATE TABLE IF NOT EXISTS ApiTokens (
+                    Id INTEGER NOT NULL PRIMARY KEY,
+                    UserId INTEGER NOT NULL,
+                    Name TEXT NOT NULL,
+                    TokenHash TEXT NOT NULL,
+                    CreatedUtc INTEGER NOT NULL,
+                    LastUsedUtc INTEGER NULL
+                );
+                CREATE INDEX IF NOT EXISTS IX_ApiTokens_UserId ON ApiTokens (UserId);
+                """);
         }),
     ];
 
@@ -100,6 +119,34 @@ public static class DbMigrator
         {
             command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Runs') WHERE name = 'RunNumber'";
             return Convert.ToInt32(command.ExecuteScalar()) == 0; // table exists without the column → legacy
+        }
+    }
+
+    /// <summary>SQLite has no "ADD COLUMN IF NOT EXISTS"; guard each addition so
+    /// partially-migrated databases stay repairable. A missing table is skipped
+    /// entirely — EnsureCreated builds it from the current model.</summary>
+    private static void AddColumnIfMissing(CiDbContext db, string table, string column, string definition)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            connection.Open();
+
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = $"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{table}';";
+            if (Convert.ToInt64(command.ExecuteScalar()) == 0)
+                return;
+        }
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}';";
+            if (Convert.ToInt64(command.ExecuteScalar()) > 0)
+                return;
+        }
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
+            command.ExecuteNonQuery();
         }
     }
 

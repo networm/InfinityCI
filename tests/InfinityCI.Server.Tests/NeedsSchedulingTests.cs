@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
+using InfinityCI.Server.Realtime;
 
 namespace InfinityCI.Server.Tests;
 
@@ -33,12 +34,13 @@ public class NeedsSchedulingTests : IDisposable
         services.AddScoped<RunRepository>();
         _provider = services.BuildServiceProvider();
 
-        _workflowStore = new WorkflowStore(Options.Create(_options), new WorkflowGitStore(Options.Create(_options), NullLogger<WorkflowGitStore>.Instance), NullLogger<WorkflowStore>.Instance);
+        _workflowStore = new WorkflowStore(Options.Create(_options), new WorkflowGitStore(Options.Create(_options), NullLogger<WorkflowGitStore>.Instance), new ChangeEvents(NullLogger<ChangeEvents>.Instance), NullLogger<WorkflowStore>.Instance);
         var logStore = new JobLogStore(_options);
         var registry = new AgentRegistry(NullLogger<AgentRegistry>.Instance);
         var localQueue = new LocalJobRunQueue();
         var aggregator = new RunAggregator(
             _provider.GetRequiredService<IServiceScopeFactory>(),
+            _workflowStore,
             _events,
             logStore,
             registry,
@@ -47,7 +49,7 @@ public class NeedsSchedulingTests : IDisposable
         var credentialStore = new CredentialStore(_provider.GetRequiredService<IServiceScopeFactory>(),
             new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider().CreateProtector("test"));
         var executor = new JobRunExecutor(Options.Create(_options), logStore, _events, credentialStore, _provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<JobRunExecutor>.Instance);
-        var workflowControl = new WorkflowControlService(_provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<WorkflowControlService>.Instance);
+        var workflowControl = new WorkflowControlService(_provider.GetRequiredService<IServiceScopeFactory>(), _workflowStore, new ChangeEvents(NullLogger<ChangeEvents>.Instance), NullLogger<WorkflowControlService>.Instance);
         _queue = new RunQueueService(
             Options.Create(_options),
             _workflowStore,

@@ -5,12 +5,16 @@
 ## 特性
 
 - **并行 Run / Job / Step**：一个工作流的多个 Job 并行执行；每个步骤独立的控制台输出
-- **Job 依赖图（needs）**：`needs: [a, b]` 声明依赖，形成 DAG；依赖失败时下游自动跳过；Run 页面渲染依赖图，点击节点切换日志
-- **逐行时间戳日志**：每个 Job 独立 JSONL 日志文件，行号即断点续传游标
+- **Job 依赖图（needs）**：`needs: [a, b]` 声明依赖，形成 DAG；依赖失败时下游自动跳过；`if: always()` 的 Job 在依赖失败后仍会运行；Run 页面渲染依赖图，点击节点切换日志
+- **超时与重试**：Job / Step 级 `timeout_minutes`（或 `timeout_seconds`）超时自动 kill；Step `retry: n` 失败自动重试
+- **定时触发**：工作流 YAML 顶层 `schedule: "*/5 * * * *"`（5 字段 cron，可配列表），到点自动触发
+- **SCM push webhook**：`/api/webhooks/{token}` 支持可选 HMAC-SHA256 验签（`X-Hub-Signature-256` 或 `X-Signature`）与分支过滤（通配符，如 `main,release/*`）；兼容 GitHub/GitLab/Gitea 的 `ref` 载荷
+- **全页面实时**：每个页面打开即建立本标签页独立的 SignalR 连接，按可见项目分组推送，数据变化实时上屏，无手动刷新按钮
+- **心跳看门狗**：健康期每 15s ping 服务端；失败按指数回退（1s/2s/4s/8s/16s）自动重试并尝试恢复连接，连续第 5 次失败时自动刷新页面
+- **逐行时间戳日志**：每个 Job 独立 JSONL 日志文件，行号即断点续传游标；控制台渲染 ANSI 颜色
 - **分布式 Agent**：Agent 主动外连 Master（gRPC，端口 5001），心跳租约、拉取式领任务、断线自动重连、孤儿任务自动重排队
-- **多标签页实时**：每个浏览器标签页独立 SignalR 连接，按资源分组推送，互不影响
-- **用户权限**：超级管理员 / 管理员 / 普通用户 + 按项目可见性
-- **任务配置 Git 仓库**：每个任务独立仓库（`data/{任务}/.git`），每次修改自动提交；Web 查看历史、一键回滚；支持 `git clone http://user:pass@host:5000/git/{任务名}` 只读克隆
+- **用户权限与安全**：超级管理员 / 管理员 / 普通用户 + 按项目可见性（REST 与实时推送一致过滤）；个人 API Token（`Authorization: Bearer`）供 CLI / 机器接入
+- **任务配置 Git 仓库**：每个任务独立仓库（`data/{任务}/.git`），保存即提交（git CLI 实现，配置历史/回滚/只读克隆）；源码 checkout 走 LibGit2Sharp
 - **任务优先目录布局**：`data/{任务}/` 下含配置、日志（按运行号）、工作区；运行编号在任务内自增，URL 形如 `/runs/{任务}/{编号}`
 
 ## 快速开始

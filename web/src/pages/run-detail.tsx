@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
-import type { HubConnection } from "@microsoft/signalr";
 import { Ban, ChevronDown, ChevronRight, Download, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "@tanstack/react-router";
 
 import { StatusIcon } from "@/components/status-icon";
+import { AnsiText } from "@/lib/ansi";
 import { api } from "@/lib/api";
 import { layoutDag } from "@/lib/dag";
 import { formatDuration, formatLogTimestamp } from "@/lib/format";
 import { useResolveUserName } from "@/lib/user-names";
 import { getCiHub } from "@/lib/signalr";
+import { useHubEvent, useHubGroup, useReconnected } from "@/lib/live";
 import type { JobRun, LogLine, Run, RunStatus, RunSubscription } from "@/lib/types";
 
 type LogsByJob = Record<string, LogLine[]>;
@@ -84,55 +85,42 @@ export function BuildDetailPage() {
     };
   }, [workflow, runNumber]);
 
-  useEffect(() => {
-    let cancelled = false;
-    let connection: HubConnection | null = null;
+  const applySubscription = useCallback((snapshot: RunSubscription) => {
+    applyRun(snapshot.run);
+    for (const jobRun of snapshot.jobRuns) applyJob(jobRun);
+    for (const [jobKey, lines] of Object.entries(snapshot.logs)) {
+      for (const line of lines) applyLine(jobKey, line);
+    }
+    setSelectedJob((current) => current ?? snapshot.jobRuns[0]?.jobKey ?? null);
+  }, [applyJob, applyLine, applyRun]);
+
+  // Join the run's group; the subscription snapshot bootstraps the page.
+  // runId is null until the REST lookup resolves, then the effect re-runs.
+  useHubGroup<RunSubscription | null>(
+    (connection) =>
+      runId === null ? Promise.resolve(null) : connection.invoke<RunSubscription>("SubscribeRun", runId),
+    (connection) => (runId === null ? Promise.resolve() : connection.invoke("UnsubscribeRun", runId)),
+    [runId],
+    (snapshot) => {
+      if (snapshot) applySubscription(snapshot);
+    },
+  );
+  useHubEvent("logAppended", (rid: number, jobKey: string, line: LogLine) => {
+    if (rid === runId) applyLine(jobKey, line);
+  });
+  useHubEvent("jobUpdated", (jobRun: JobRun) => {
+    if (jobRun.runId === runId) applyJob(jobRun);
+  });
+  useHubEvent("runUpdated", (r: Run) => {
+    if (r.id === runId) applyRun(r);
+  });
+  useReconnected(() => {
     if (runId === null) return;
-
-    const resubscribe = async () => {
-      // Reconnects replay the full snapshot; cursors dedupe overlapping lines.
-      const snapshot = await connection!.invoke<RunSubscription>("SubscribeRun", runId);
-      if (cancelled) return;
-      applyRun(snapshot.run);
-      for (const jobRun of snapshot.jobRuns) applyJob(jobRun);
-      for (const [jobKey, lines] of Object.entries(snapshot.logs)) {
-        for (const line of lines) applyLine(jobKey, line);
-      }
-      setSelectedJob((current) => current ?? snapshot.jobRuns[0]?.jobKey ?? null);
-    };
-
-    (async () => {
-      try {
-        connection = await getCiHub();
-        if (cancelled) return;
-
-        connection.on("logAppended", (rid: number, jobKey: string, line: LogLine) => {
-          if (rid === runId) applyLine(jobKey, line);
-        });
-        connection.on("jobUpdated", (jobRun: JobRun) => {
-          if (jobRun.runId === runId) applyJob(jobRun);
-        });
-        connection.on("runUpdated", (r: Run) => {
-          if (r.id === runId) applyRun(r);
-        });
-        connection.on("reconnected", () => {
-          void resubscribe().catch(() => {});
-        });
-
-        await resubscribe();
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      connection?.off("logAppended");
-      connection?.off("jobUpdated");
-      connection?.off("runUpdated");
-      connection?.invoke("UnsubscribeRun", runId).catch(() => {});
-    };
-  }, [applyJob, applyLine, applyRun, runId]);
+    void getCiHub()
+      .then((connection) => connection.invoke<RunSubscription>("SubscribeRun", runId))
+      .then((snapshot) => applySubscription(snapshot))
+      .catch(() => {});
+  });
 
   const filteredJobs = useMemo(
     () => jobs.filter((j) => j.jobKey.toLowerCase().includes(jobFilter.toLowerCase())),
@@ -445,7 +433,9 @@ function StepSection({
             lines.map((line) => (
               <div key={line.line} className="flex gap-3 whitespace-pre-wrap">
                 <span className="shrink-0 select-none text-[#7d8590]">{formatLogTimestamp(line.timestampUtc)}</span>
-                <span className="text-[#c9d1d9]">{line.text}</span>
+                <span className="text-[#c9d1d9]">
+                  <AnsiText text={line.text} />
+                </span>
               </div>
             ))
           )}

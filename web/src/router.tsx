@@ -11,6 +11,7 @@ import { JobsPage } from "./pages/jobs";
 import { ProjectsPage } from "./pages/projects";
 import { QueuePage } from "./pages/queue";
 import { RunsListPage } from "./pages/runs-list";
+import { TokensPage } from "./pages/tokens";
 import { WorkflowDetailPage } from "./pages/workflow-detail";
 
 function NotFound() {
@@ -89,6 +90,12 @@ const adminRoute = createRoute({
   component: AdminPage,
 });
 
+const tokensRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/tokens",
+  component: TokensPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   runRoute,
@@ -101,6 +108,7 @@ const routeTree = rootRoute.addChildren([
   jobDetailRoute,
   agentsRoute,
   adminRoute,
+  tokensRoute,
 ]);
 
 export const router = createRouter({ routeTree });

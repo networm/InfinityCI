@@ -2,6 +2,7 @@ import i18n from "../i18n";
 import type {
   AgentEnrollment,
   AgentInfo,
+  ApiTokenInfo,
   CredentialInfo,
   DashboardItem,
   EnrolledAgent,
@@ -118,6 +119,20 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ url }),
     }),
+  setWebhookConfig: (name: string, payload: { secret?: string; branches?: string }) =>
+    request<{ name: string; hasSecret: boolean; branches: string | null }>(
+      `/api/jobs/${encodeURIComponent(name)}/webhook-config`,
+      { method: "PUT", body: JSON.stringify(payload) },
+    ),
+
+  // user API tokens
+  tokens: () => request<ApiTokenInfo[]>("/api/tokens"),
+  createToken: (name: string) =>
+    request<{ id: number; name: string; token: string }>("/api/tokens", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  deleteToken: (id: number) => request<unknown>(`/api/tokens/${id}`, { method: "DELETE" }),
 
   trigger: (name: string, params?: Record<string, string>) =>
     request<Run>(`/api/jobs/${encodeURIComponent(name)}/trigger`, {

@@ -1,11 +1,13 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using System.Text.Json;
 using InfinityCI.Core;
 using InfinityCI.Server.Agents;
 using InfinityCI.Server.Auth;
 using InfinityCI.Server.Jobs;
 using InfinityCI.Server.Notifications;
+using InfinityCI.Server.Realtime;
 using Microsoft.AspNetCore.DataProtection;
 using InfinityCI.Server.Runs;
 using LibGit2Sharp;
@@ -19,7 +21,6 @@ namespace InfinityCI.Server.Api;
 
 public sealed record LogPage(long RunId, string JobKey, long NextLine, IReadOnlyList<LogLine> Lines);
 public sealed record RunsPageItem(Run Run, IReadOnlyList<JobRun> Jobs);
-public sealed record QueueItem(long JobRunId, long RunId, string WorkflowName, string Project, string JobKey, string RunsOn, string? RequiredLabel, DateTimeOffset CreatedAt);
 public record LoginRequest(string Username, string Password);
 public record CreateUserRequest(string Username, string Password, string Role, long[] ProjectIds, string? DisplayName);
 public record UpdateUserRequest(string? Password, string? Role, long[]? ProjectIds, string? DisplayName);
@@ -35,6 +36,8 @@ public record EnabledToggleRequest(bool Enabled);
 public record NotifyWebhookRequest(string? Url);
 public record WebhookTriggerRequest(Dictionary<string, string>? Params);
 public record EnabledRequest(bool Enabled);
+public record WebhookConfigRequest(string? Secret, string? Branches);
+public record CreateApiTokenRequest(string Name);
 
 public static class CiApi
 {
@@ -48,6 +51,7 @@ public static class CiApi
         MapWorkflowControl(app);
         MapRuns(app);
         MapAgents(app);
+        MapTokens(app);
         MapGitClone(app);
         return app;
     }
@@ -156,7 +160,7 @@ public static class CiApi
         app.MapGet("/api/projects", async (CiDbContext db) =>
             Results.Ok(await db.Projects.OrderBy(p => p.Name).ToListAsync()));
 
-        app.MapPost("/api/projects", async (ProjectRequest request, CiDbContext db) =>
+        app.MapPost("/api/projects", async (ProjectRequest request, CiDbContext db, ChangeEvents events) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name))
                 return Results.BadRequest(new { message = Msg.T("Project name is required.", "项目名称不能为空。") });
@@ -165,20 +169,22 @@ public static class CiApi
             var project = new Project { Name = request.Name.Trim(), Description = request.Description };
             db.Projects.Add(project);
             await db.SaveChangesAsync();
+            await events.PublishAdminChangedAsync(AdminChangeKind.Projects);
             return Results.Ok(project);
         }).RequireAuthorization("Admins");
 
-        app.MapPut("/api/projects/{id:long}", async (long id, ProjectRequest request, CiDbContext db) =>
+        app.MapPut("/api/projects/{id:long}", async (long id, ProjectRequest request, CiDbContext db, ChangeEvents events) =>
         {
             var project = await db.Projects.FindAsync([id]);
             if (project is null) return Results.NotFound();
             project.Name = request.Name.Trim();
             project.Description = request.Description;
             await db.SaveChangesAsync();
+            await events.PublishAdminChangedAsync(AdminChangeKind.Projects);
             return Results.Ok(project);
         }).RequireAuthorization("Admins");
 
-        app.MapDelete("/api/projects/{id:long}", async (long id, WorkflowStore store, CiDbContext db) =>
+        app.MapDelete("/api/projects/{id:long}", async (long id, WorkflowStore store, CiDbContext db, ChangeEvents events) =>
         {
             var project = await db.Projects.Include(p => p.Users).FirstOrDefaultAsync(p => p.Id == id);
             if (project is null) return Results.NotFound();
@@ -188,6 +194,7 @@ public static class CiApi
                     $"项目「{project.Name}」下仍有任务，请先移动或删除。") });
             db.Projects.Remove(project);
             await db.SaveChangesAsync();
+            await events.PublishAdminChangedAsync(AdminChangeKind.Projects);
             return Results.Ok();
         }).RequireAuthorization("Admins");
 
@@ -206,7 +213,7 @@ public static class CiApi
                 .OrderBy(u => u.Username).ToListAsync()))
             .RequireAuthorization("SuperAdmin");
 
-        app.MapPost("/api/users", async (CreateUserRequest request, CiDbContext db) =>
+        app.MapPost("/api/users", async (CreateUserRequest request, CiDbContext db, ChangeEvents events) =>
         {
             if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
                 return Results.BadRequest(new { message = Msg.T("Username and password are required.", "用户名和密码不能为空。") });
@@ -225,15 +232,25 @@ public static class CiApi
             await AttachProjectsAsync(db, user, request.ProjectIds);
             db.Users.Add(user);
             await db.SaveChangesAsync();
+            await events.PublishAdminChangedAsync(AdminChangeKind.Users);
             return Results.Ok(new { user.Id, user.Username, user.Role });
         }).RequireAuthorization("SuperAdmin");
 
-        app.MapPut("/api/users/{id:long}", async (long id, UpdateUserRequest request, CiDbContext db, ClaimsPrincipal actor) =>
+        app.MapPut("/api/users/{id:long}", async (long id, UpdateUserRequest request, CiDbContext db, ClaimsPrincipal actor, ChangeEvents events) =>
         {
             var user = await db.Users.Include(u => u.Projects).FirstOrDefaultAsync(u => u.Id == id);
             if (user is null) return Results.NotFound();
             if (request.Role is { } role && role is not (AppRoles.SuperAdmin or AppRoles.Admin or AppRoles.User))
                 return Results.BadRequest(new { message = Msg.T($"Unknown role '{role}'.", $"未知角色「{role}」。") });
+
+            // Self-demotion check must run BEFORE anything is saved, otherwise
+            // the demoted role is already persisted when we notice it.
+            var targetRole = request.Role ?? user.Role;
+            if (user.Username == actor.Identity?.Name
+                && user.Role == AppRoles.SuperAdmin
+                && targetRole != AppRoles.SuperAdmin
+                && id.ToString() == actor.FindFirst(ClaimTypes.NameIdentifier)!.Value)
+                return Results.BadRequest(new { message = Msg.T("Cannot demote yourself.", "不能将自己降级。") });
 
             if (request.Password is { Length: > 0 } password)
                 user.PasswordHash = PasswordHasher.Hash(password);
@@ -247,12 +264,11 @@ public static class CiApi
                 await AttachProjectsAsync(db, user, ids);
             }
             await db.SaveChangesAsync();
-            if (user.Username == actor.Identity?.Name && user.Role != AppRoles.SuperAdmin && id.ToString() == actor.FindFirst(ClaimTypes.NameIdentifier)!.Value)
-                return Results.BadRequest(new { message = Msg.T("Cannot demote yourself.", "不能将自己降级。") });
+            await events.PublishAdminChangedAsync(AdminChangeKind.Users);
             return Results.Ok(new { user.Id, user.Username, user.Role });
         }).RequireAuthorization("SuperAdmin");
 
-        app.MapDelete("/api/users/{id:long}", async (long id, CiDbContext db, ClaimsPrincipal actor) =>
+        app.MapDelete("/api/users/{id:long}", async (long id, CiDbContext db, ClaimsPrincipal actor, ChangeEvents events) =>
         {
             var user = await db.Users.FindAsync([id]);
             if (user is null) return Results.NotFound();
@@ -260,6 +276,7 @@ public static class CiApi
                 return Results.BadRequest(new { message = Msg.T("Cannot delete yourself.", "不能删除自己。") });
             db.Users.Remove(user);
             await db.SaveChangesAsync();
+            await events.PublishAdminChangedAsync(AdminChangeKind.Users);
             return Results.Ok();
         }).RequireAuthorization("SuperAdmin");
     }
@@ -338,14 +355,17 @@ public static class CiApi
         app.MapDelete("/api/jobs/{name}", async (string name, WorkflowStore store, CiDbContext db, ClaimsPrincipal user) =>
             store.Delete(name, await DisplayNameOfAsync(db, user)) ? Results.Ok() : Results.NotFound()).RequireAuthorization("Admins");
 
-        app.MapGet("/api/jobs/{name}/history", (string name, WorkflowStore store, WorkflowGitStore git, ClaimsPrincipal user) =>
+        app.MapGet("/api/jobs/{name}/history", async (string name, WorkflowStore store, WorkflowGitStore git, CiDbContext db, ClaimsPrincipal user) =>
         {
-            if (store.TryGet(name) is null) return Results.NotFound();
+            if (!await CanSeeWorkflowAsync(store, db, user, name)) return Results.NotFound();
             return Results.Ok(git.History(name));
         }).RequireAuthorization();
 
-        app.MapGet("/api/jobs/{name}/state", async (string name, WorkflowControlService control) =>
-            Results.Ok(await control.GetAsync(name))).RequireAuthorization();
+        app.MapGet("/api/jobs/{name}/state", async (string name, WorkflowControlService control, WorkflowStore store, CiDbContext db, ClaimsPrincipal user) =>
+        {
+            if (!await CanSeeWorkflowAsync(store, db, user, name)) return Results.NotFound();
+            return Results.Ok(await control.GetAsync(name));
+        }).RequireAuthorization();
 
         app.MapPost("/api/jobs/{name}/enabled", async (string name, EnabledToggleRequest request, WorkflowControlService control, WorkflowStore store) =>
         {
@@ -375,6 +395,14 @@ public static class CiApi
             return Results.Ok();
         }).RequireAuthorization("Admins");
 
+        app.MapPut("/api/jobs/{name}/webhook-config", async (string name, WebhookConfigRequest request, WorkflowControlService control, WorkflowStore store) =>
+        {
+            if (store.TryGet(name) is null) return Results.NotFound();
+            await control.SetWebhookConfigAsync(name, request.Secret, request.Branches);
+            var state = await control.GetAsync(name);
+            return Results.Ok(new { name, hasSecret = state.HasWebhookSecret, branches = state.WebhookBranches });
+        }).RequireAuthorization("Admins");
+
         app.MapPut("/api/jobs/{name}/notify-webhook", async (string name, NotifyWebhookRequest request, WorkflowControlService control, WorkflowStore store) =>
         {
             if (store.TryGet(name) is null) return Results.NotFound();
@@ -382,9 +410,9 @@ public static class CiApi
             return Results.Ok(new { name, url = request.Url });
         }).RequireAuthorization("Admins");
 
-        app.MapGet("/api/jobs/{name}/blob/{sha}", (string name, string sha, WorkflowStore store, WorkflowGitStore git, ClaimsPrincipal user) =>
+        app.MapGet("/api/jobs/{name}/blob/{sha}", async (string name, string sha, WorkflowStore store, WorkflowGitStore git, CiDbContext db, ClaimsPrincipal user) =>
         {
-            if (store.TryGet(name) is null) return Results.NotFound();
+            if (!await CanSeeWorkflowAsync(store, db, user, name)) return Results.NotFound();
             return git.ReadAt(name, sha) is { } yaml ? Results.Ok(new { name, sha, yaml }) : Results.NotFound();
         }).RequireAuthorization();
 
@@ -444,22 +472,25 @@ public static class CiApi
             });
         }).RequireAuthorization();
 
-        app.MapGet("/api/jobs/{name}/runs/{runNumber:int}", async (string name, int runNumber, RunRepository repo) =>
+        app.MapGet("/api/jobs/{name}/runs/{runNumber:int}", async (string name, int runNumber, RunRepository repo, WorkflowStore store, CiDbContext db, ClaimsPrincipal user) =>
         {
+            if (!await CanSeeWorkflowAsync(store, db, user, name)) return Results.NotFound();
             var run = await repo.GetRunAsync(name, runNumber);
             if (run is null) return Results.NotFound();
             return Results.Ok(new RunsPageItem(run, await repo.GetJobRunsAsync(run.Id)));
         }).RequireAuthorization();
 
-        app.MapPost("/api/jobs/{name}/runs/{runNumber:int}/cancel", async (string name, int runNumber, RunRepository repo, RunQueueService queue) =>
+        app.MapPost("/api/jobs/{name}/runs/{runNumber:int}/cancel", async (string name, int runNumber, RunRepository repo, RunQueueService queue, WorkflowStore store, CiDbContext db, ClaimsPrincipal user) =>
         {
+            if (!await CanSeeWorkflowAsync(store, db, user, name)) return Results.NotFound();
             var run = await repo.GetRunAsync(name, runNumber);
             if (run is null) return Results.NotFound();
             return Results.Ok(new { cancelled = await queue.TryCancelRunAsync(run.Id) });
         }).RequireAuthorization();
 
-        app.MapGet("/api/jobs/{name}/runs/{runNumber:int}/logs/{jobKey}", async (string name, int runNumber, string jobKey, JobLogStore logs, RunRepository repo, long afterLine = 0, int maxLines = 20_000) =>
+        app.MapGet("/api/jobs/{name}/runs/{runNumber:int}/logs/{jobKey}", async (string name, int runNumber, string jobKey, JobLogStore logs, RunRepository repo, WorkflowStore store, CiDbContext db, ClaimsPrincipal user, long afterLine = 0, int maxLines = 20_000) =>
         {
+            if (!await CanSeeWorkflowAsync(store, db, user, name)) return Results.NotFound();
             var run = await repo.GetRunAsync(name, runNumber);
             if (run is null) return Results.NotFound();
             var lines = await logs.ReadAfterAsync(run.Id, run.WorkflowName, run.RunNumber, jobKey, afterLine, maxLines);
@@ -467,8 +498,9 @@ public static class CiApi
             return Results.Ok(new LogPage(run.Id, jobKey, next, lines));
         }).RequireAuthorization();
 
-        app.MapGet("/api/jobs/{name}/runs/{runNumber:int}/logs/{jobKey}/download", async (string name, int runNumber, string jobKey, string? format, JobLogStore logs, RunRepository repo, HttpContext http) =>
+        app.MapGet("/api/jobs/{name}/runs/{runNumber:int}/logs/{jobKey}/download", async (string name, int runNumber, string jobKey, string? format, JobLogStore logs, RunRepository repo, WorkflowStore store, CiDbContext db, ClaimsPrincipal user, HttpContext http) =>
         {
+            if (!await CanSeeWorkflowAsync(store, db, user, name)) return Results.NotFound();
             var run = await repo.GetRunAsync(name, runNumber);
             if (run is null) return Results.NotFound();
             var lines = await logs.ReadAfterAsync(run.Id, run.WorkflowName, run.RunNumber, jobKey, 0);
@@ -495,46 +527,32 @@ public static class CiApi
             return Results.Ok(runs.Select(r => new RunsPageItem(r, jobs.GetValueOrDefault(r.Id, []))));
         }).RequireAuthorization();
 
-        app.MapGet("/api/runs/{id:long}", async (long id, RunRepository repo) =>
+        app.MapGet("/api/runs/{id:long}", async (long id, RunRepository repo, CiDbContext db, ClaimsPrincipal user) =>
         {
             var run = await repo.GetRunAsync(id);
-            if (run is null) return Results.NotFound();
+            if (run is null || !await CanSeeProjectAsync(db, user, run.Project)) return Results.NotFound();
             return Results.Ok(new RunsPageItem(run, await repo.GetJobRunsAsync(id)));
         }).RequireAuthorization();
 
-        app.MapPost("/api/runs/{id:long}/cancel", async (long id, RunQueueService queue) =>
-            Results.Ok(new { cancelled = await queue.TryCancelRunAsync(id) })).RequireAuthorization();
+        app.MapPost("/api/runs/{id:long}/cancel", async (long id, RunRepository repo, RunQueueService queue, CiDbContext db, ClaimsPrincipal user) =>
+        {
+            var run = await repo.GetRunAsync(id);
+            if (run is null || !await CanSeeProjectAsync(db, user, run.Project)) return Results.NotFound();
+            return Results.Ok(new { cancelled = await queue.TryCancelRunAsync(id) });
+        }).RequireAuthorization();
 
         // Job runs waiting to start (local executor busy, or no agent has pulled
         // them yet) — FIFO order, filtered by project visibility.
-        app.MapGet("/api/queue", async (CiDbContext db, ClaimsPrincipal user) =>
+        app.MapGet("/api/queue", async (QueueSnapshot queue, CiDbContext db, ClaimsPrincipal user) =>
         {
-            var visible = await VisibleProjectsAsync(user, db);
-            var queued = await db.JobRuns.AsNoTracking()
-                .Where(j => j.Status == JobRunStatus.Queued)
-                .OrderBy(j => j.Id)
-                .ToListAsync();
-            var runIds = queued.Select(j => j.RunId).Distinct().ToArray();
-            var runs = await db.Runs.AsNoTracking()
-                .Where(r => runIds.Contains(r.Id))
-                .ToDictionaryAsync(r => r.Id);
-            var items = queued
-                .Select(j => new QueueItem(
-                    j.Id,
-                    j.RunId,
-                    runs.GetValueOrDefault(j.RunId)?.WorkflowName ?? "?",
-                    runs.GetValueOrDefault(j.RunId)?.Project ?? "",
-                    j.JobKey,
-                    j.RunsOn,
-                    RemoteBuildCoordinator.PendingFromRunsOn(j.RunsOn, j.Id).RequiredLabel,
-                    j.CreatedAt))
-                .Where(i => visible is null || visible.Contains(i.Project))
-                .ToList();
-            return Results.Ok(items);
+            var visible = await ProjectVisibility.VisibleProjectsAsync(user, db);
+            return Results.Ok(await queue.BuildAsync(visible));
         }).RequireAuthorization();
 
-        app.MapPost("/api/runs/{id:long}/retry", async (long id, RunQueueService queue) =>
+        app.MapPost("/api/runs/{id:long}/retry", async (long id, RunRepository repo, RunQueueService queue, CiDbContext db, ClaimsPrincipal user) =>
         {
+            var existing = await repo.GetRunAsync(id);
+            if (existing is null || !await CanSeeProjectAsync(db, user, existing.Project)) return Results.NotFound();
             try
             {
                 var run = await queue.RetryFromFailedAsync(id);
@@ -546,19 +564,19 @@ public static class CiApi
             }
         }).RequireAuthorization();
 
-        app.MapGet("/api/runs/{id:long}/logs/{jobKey}", async (long id, string jobKey, JobLogStore logs, RunRepository repo, long afterLine = 0, int maxLines = 20_000) =>
+        app.MapGet("/api/runs/{id:long}/logs/{jobKey}", async (long id, string jobKey, JobLogStore logs, RunRepository repo, CiDbContext db, ClaimsPrincipal user, long afterLine = 0, int maxLines = 20_000) =>
         {
             var legacyRun = await repo.GetRunAsync(id);
-            if (legacyRun is null) return Results.NotFound();
+            if (legacyRun is null || !await CanSeeProjectAsync(db, user, legacyRun.Project)) return Results.NotFound();
             var lines = await logs.ReadAfterAsync(id, legacyRun.WorkflowName, legacyRun.RunNumber, jobKey, afterLine, maxLines);
             var next = lines.Count > 0 ? lines[^1].Line + 1 : afterLine;
             return Results.Ok(new LogPage(id, jobKey, next, lines));
         }).RequireAuthorization();
 
-        app.MapGet("/api/runs/{id:long}/logs/{jobKey}/download", async (long id, string jobKey, string? format, JobLogStore logs, RunRepository repo, HttpContext http) =>
+        app.MapGet("/api/runs/{id:long}/logs/{jobKey}/download", async (long id, string jobKey, string? format, JobLogStore logs, RunRepository repo, CiDbContext db, ClaimsPrincipal user, HttpContext http) =>
         {
             var run = await repo.GetRunAsync(id);
-            if (run is null) return Results.NotFound();
+            if (run is null || !await CanSeeProjectAsync(db, user, run.Project)) return Results.NotFound();
             var lines = await logs.ReadAfterAsync(run.Id, run.WorkflowName, run.RunNumber, jobKey, 0);
             var timestamped = string.Equals(format, "timestamped", StringComparison.OrdinalIgnoreCase);
             var content = string.Join("\n", lines.Select(l => timestamped
@@ -594,7 +612,7 @@ public static class CiApi
             }));
         }).RequireAuthorization("Admins");
 
-        app.MapPut("/api/agents/{id}/config", async (string id, AgentConfigRequest request, CiDbContext db, AgentRegistry registry) =>
+        app.MapPut("/api/agents/{id}/config", async (string id, AgentConfigRequest request, CiDbContext db, AgentRegistry registry, ChangeEvents events) =>
         {
             var record = await db.Agents.FindAsync([id]);
             if (record is null) return Results.NotFound();
@@ -609,10 +627,12 @@ public static class CiApi
             // A connected agent picks the change up immediately; offline ones
             // read the record at their next registration.
             registry.ApplyConfig(id, record.Name, labels, record.MaxConcurrentBuilds);
+            await registry.PublishChangedAsync();
+            await events.PublishAdminChangedAsync(AdminChangeKind.Agents);
             return Results.Ok(new { id, maxConcurrentBuilds = record.MaxConcurrentBuilds, labels, env });
         }).RequireAuthorization("Admins");
 
-        app.MapPut("/api/agents/{id}/enabled", async (string id, EnabledRequest request, CiDbContext db, AgentRegistry registry) =>
+        app.MapPut("/api/agents/{id}/enabled", async (string id, EnabledRequest request, CiDbContext db, AgentRegistry registry, ChangeEvents events) =>
         {
             var record = await db.Agents.FindAsync([id]);
             if (record is null) return Results.NotFound();
@@ -620,16 +640,20 @@ public static class CiApi
             await db.SaveChangesAsync();
             if (!request.Enabled)
                 registry.MarkOffline(id);
+            await registry.PublishChangedAsync();
+            await events.PublishAdminChangedAsync(AdminChangeKind.Agents);
             return Results.Ok(new { id, enabled = record.Enabled });
         }).RequireAuthorization("Admins");
 
-        app.MapDelete("/api/agents/{id}", async (string id, CiDbContext db, AgentRegistry registry) =>
+        app.MapDelete("/api/agents/{id}", async (string id, CiDbContext db, AgentRegistry registry, ChangeEvents events) =>
         {
             var record = await db.Agents.FindAsync([id]);
             if (record is null) return Results.NotFound();
             db.Agents.Remove(record);
             await db.SaveChangesAsync();
-            registry.MarkOffline(id);
+            registry.Remove(id);
+            await registry.PublishChangedAsync();
+            await events.PublishAdminChangedAsync(AdminChangeKind.Agents);
             return Results.Ok();
         }).RequireAuthorization("Admins");
 
@@ -637,7 +661,7 @@ public static class CiApi
             Results.Ok(await db.AgentEnrollments.OrderByDescending(e => e.CreatedUtc).ToListAsync()))
             .RequireAuthorization("Admins");
 
-        app.MapPost("/api/agents/enrollments", async (EnrollmentRequest request, CiDbContext db) =>
+        app.MapPost("/api/agents/enrollments", async (EnrollmentRequest request, CiDbContext db, ChangeEvents events) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name))
                 return Results.BadRequest(new { message = Msg.T("Enrollment name is required.", "注册名称不能为空。") });
@@ -652,6 +676,7 @@ public static class CiApi
             };
             db.AgentEnrollments.Add(enrollment);
             await db.SaveChangesAsync();
+            await events.PublishAdminChangedAsync(AdminChangeKind.Enrollments);
             return Results.Ok(new
             {
                 enrollment.Id,
@@ -660,12 +685,13 @@ public static class CiApi
             });
         }).RequireAuthorization("Admins");
 
-        app.MapDelete("/api/agents/enrollments/{id:long}", async (long id, CiDbContext db) =>
+        app.MapDelete("/api/agents/enrollments/{id:long}", async (long id, CiDbContext db, ChangeEvents events) =>
         {
             var enrollment = await db.AgentEnrollments.FindAsync([id]);
             if (enrollment is null) return Results.NotFound();
             db.AgentEnrollments.Remove(enrollment);
             await db.SaveChangesAsync();
+            await events.PublishAdminChangedAsync(AdminChangeKind.Enrollments);
             return Results.Ok();
         }).RequireAuthorization("Admins");
     }
@@ -686,16 +712,22 @@ public static class CiApi
         app.MapGet("/api/credentials", (CredentialStore store) => Results.Ok(store.List()))
             .RequireAuthorization("Admins");
 
-        app.MapPost("/api/credentials", (CredentialRequest request, CredentialStore store) =>
+        app.MapPost("/api/credentials", (CredentialRequest request, CredentialStore store, ChangeEvents events) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Username))
                 return Results.BadRequest(new { message = Msg.T("Name and username are required.", "名称和用户名不能为空。") });
             store.Save(request.Name.Trim(), request.Username, request.Secret ?? "");
+            _ = events.PublishAdminChangedAsync(AdminChangeKind.Credentials);
             return Results.Ok(new { name = request.Name.Trim() });
         }).RequireAuthorization("Admins");
 
-        app.MapDelete("/api/credentials/{name}", (string name, CredentialStore store) =>
-            store.Delete(name) ? Results.Ok() : Results.NotFound()).RequireAuthorization("Admins");
+        app.MapDelete("/api/credentials/{name}", (string name, CredentialStore store, ChangeEvents events) =>
+        {
+            var deleted = store.Delete(name);
+            if (deleted)
+                _ = events.PublishAdminChangedAsync(AdminChangeKind.Credentials);
+            return deleted ? Results.Ok() : Results.NotFound();
+        }).RequireAuthorization("Admins");
     }
 
     // -- dashboard aggregate (home page) --
@@ -788,18 +820,69 @@ public static class CiApi
 
     private static void MapWorkflowControl(IEndpointRouteBuilder app)
     {
-        app.MapPost("/api/webhooks/{token}", async (string token, WebhookTriggerRequest? request,
+        app.MapPost("/api/webhooks/{token}", async (string token, HttpContext http,
             WorkflowControlService control, RunQueueService queue) =>
         {
             var workflowName = await control.FindByWebhookTokenAsync(token);
             if (workflowName is null)
                 return Results.NotFound(new { message = Msg.T("Unknown webhook token.", "未知的 Webhook 令牌。") });
+
+            // Raw body is needed both for HMAC signing and payload parsing.
+            string body;
+            using (var reader = new StreamReader(http.Request.Body, System.Text.Encoding.UTF8))
+                body = await reader.ReadToEndAsync();
+
+            // Optional HMAC-SHA256 request signing (X-Hub-Signature-256 GitHub
+            // style, or X-Signature). No secret configured = token-in-URL auth only.
+            var secret = await control.GetWebhookSecretAsync(workflowName);
+            if (!string.IsNullOrEmpty(secret))
+            {
+                var signature = http.Request.Headers["X-Hub-Signature-256"].FirstOrDefault()
+                    ?? http.Request.Headers["X-Signature"].FirstOrDefault();
+                if (signature is null || !VerifyWebhookSignature(secret, body, signature))
+                    return Results.Unauthorized();
+            }
+
+            // GitHub sends a ping when a webhook is registered — acknowledge, don't build.
+            if (http.Request.Headers["X-GitHub-Event"].FirstOrDefault() == "ping")
+                return Results.Ok(new { triggered = false, reason = "ping" });
+
+            string? branch = null;
+            Dictionary<string, string>? parameters = null;
+            if (body.Length > 0)
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(body);
+                    branch = ExtractBranch(doc.RootElement);
+                    if (doc.RootElement.TryGetProperty("params", out var paramsElement) && paramsElement.ValueKind == JsonValueKind.Object)
+                    {
+                        parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var property in paramsElement.EnumerateObject())
+                            parameters[property.Name] = property.Value.ToString();
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Non-JSON payloads (plain text) trigger with defaults.
+                }
+            }
+
+            if (!MatchesBranchFilter(await control.GetWebhookBranchesAsync(workflowName), branch))
+                return Results.Ok(new
+                {
+                    triggered = false,
+                    reason = branch is null
+                        ? Msg.T("payload carried no branch; a branch filter is configured.", "载荷中没有分支信息，而该任务配置了分支过滤。")
+                        : Msg.T($"branch '{branch}' does not match the filter.", $"分支「{branch}」不匹配过滤规则。"),
+                });
+
             if (!await control.IsEnabledAsync(workflowName))
                 return Results.Conflict(new { message = Msg.T($"Workflow '{workflowName}' is disabled.", $"任务「{workflowName}」已禁用。") });
             try
             {
-                var run = await queue.TriggerAsync(workflowName, "webhook", request?.Params);
-                return Results.Ok(new { run.Id, run.WorkflowName, run.Status, run.TriggeredBy });
+                var run = await queue.TriggerAsync(workflowName, "webhook", parameters);
+                return Results.Ok(new { triggered = true, run.Id, run.WorkflowName, run.Status, run.TriggeredBy });
             }
             catch (InvalidOperationException ex)
             {
@@ -810,6 +893,101 @@ public static class CiApi
                 return Results.NotFound(new { message = Msg.T($"Unknown workflow '{workflowName}'.", $"未知任务「{workflowName}」。") });
             }
         }).AllowAnonymous();
+    }
+
+    // -- user API tokens (self-service machine/CLI access) --
+
+    private static void MapTokens(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/api/tokens", async (ClaimsPrincipal user, CiDbContext db) =>
+            Results.Ok(await db.ApiTokens.Where(t => t.UserId == CurrentUserId(user))
+                .OrderByDescending(t => t.CreatedUtc)
+                .Select(t => new { t.Id, t.Name, t.CreatedUtc, t.LastUsedUtc })
+                .ToListAsync())).RequireAuthorization();
+
+        app.MapPost("/api/tokens", async (CreateApiTokenRequest request, ClaimsPrincipal user, CiDbContext db) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Name))
+                return Results.BadRequest(new { message = Msg.T("Token name is required.", "令牌名称不能为空。") });
+            // Plaintext is returned exactly once; only the PBKDF2 hash is stored.
+            var raw = "ifc_" + Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+            var token = new ApiToken
+            {
+                UserId = CurrentUserId(user),
+                Name = request.Name.Trim(),
+                TokenHash = PasswordHasher.Hash(raw),
+                CreatedUtc = DateTimeOffset.UtcNow,
+            };
+            db.ApiTokens.Add(token);
+            await db.SaveChangesAsync();
+            return Results.Ok(new { token.Id, token.Name, token = raw });
+        }).RequireAuthorization();
+
+        app.MapDelete("/api/tokens/{id:long}", async (long id, ClaimsPrincipal user, CiDbContext db) =>
+        {
+            var token = await db.ApiTokens.FindAsync([id]);
+            if (token is null || token.UserId != CurrentUserId(user))
+                return Results.NotFound();
+            db.ApiTokens.Remove(token);
+            await db.SaveChangesAsync();
+            return Results.Ok();
+        }).RequireAuthorization();
+    }
+
+    private static long CurrentUserId(ClaimsPrincipal user) =>
+        long.Parse(user.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+    // -- webhook signing/branch helpers --
+
+    private static bool VerifyWebhookSignature(string secret, string body, string provided)
+    {
+        using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+        var expected = Convert.ToHexString(hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(body))).ToLowerInvariant();
+        // "sha256=<hex>" (GitHub) or bare hex.
+        var candidate = provided.Trim();
+        if (candidate.StartsWith("sha256=", StringComparison.OrdinalIgnoreCase))
+            candidate = candidate["sha256=".Length..];
+        return CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(expected),
+            System.Text.Encoding.UTF8.GetBytes(candidate.ToLowerInvariant()));
+    }
+
+    private static string? ExtractBranch(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            return null;
+        if (root.TryGetProperty("ref", out var refr) && refr.ValueKind == JsonValueKind.String)
+        {
+            var value = refr.GetString() ?? "";
+            const string heads = "refs/heads/";
+            return value.StartsWith(heads, StringComparison.OrdinalIgnoreCase) ? value[heads.Length..] : value;
+        }
+        if (root.TryGetProperty("branch", out var branch) && branch.ValueKind == JsonValueKind.String)
+            return branch.GetString();
+        return null;
+    }
+
+    /// <summary>Comma-separated wildcard patterns ("main,release/*", "?" = one char);
+    /// null/empty filter matches everything; no branch in the payload matches nothing.</summary>
+    private static bool MatchesBranchFilter(string? filter, string? branch)
+    {
+        if (string.IsNullOrWhiteSpace(filter))
+            return true;
+        if (branch is null)
+            return false;
+        foreach (var raw in filter.Split(','))
+        {
+            var pattern = raw.Trim();
+            const string heads = "refs/heads/";
+            if (pattern.StartsWith(heads, StringComparison.OrdinalIgnoreCase))
+                pattern = pattern[heads.Length..];
+            if (pattern.Length == 0)
+                continue;
+            var regex = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
+            if (Regex.IsMatch(branch, regex, RegexOptions.IgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     // -- read-only git clone (dumb HTTP protocol) --
@@ -892,20 +1070,11 @@ public static class CiApi
         });
     }
 
-    // -- visibility helpers --
+    // -- visibility helpers (shared implementation in Auth/ProjectVisibility) --
 
     /// <summary>null = all projects visible (admins); otherwise the set of visible project names.</summary>
-    private static async Task<HashSet<string>?> VisibleProjectsAsync(ClaimsPrincipal user, CiDbContext db)
-    {
-        if (IsAdmin(user))
-            return null;
-        var username = user.Identity?.Name ?? "";
-        var names = await db.UserProjects
-            .Where(up => up.User.Username == username)
-            .Select(up => up.Project.Name)
-            .ToListAsync();
-        return names.ToHashSet(StringComparer.OrdinalIgnoreCase);
-    }
+    private static Task<HashSet<string>?> VisibleProjectsAsync(ClaimsPrincipal user, CiDbContext db) =>
+        ProjectVisibility.VisibleProjectsAsync(user, db);
 
     private static async Task<bool> CanSeeWorkflowAsync(WorkflowStore store, CiDbContext db, ClaimsPrincipal user, string name)
     {
@@ -916,8 +1085,13 @@ public static class CiApi
         return visible is null || visible.Contains(workflow.Project);
     }
 
-    private static bool IsAdmin(ClaimsPrincipal user) =>
-        user.IsInRole(AppRoles.SuperAdmin) || user.IsInRole(AppRoles.Admin);
+    private static async Task<bool> CanSeeProjectAsync(CiDbContext db, ClaimsPrincipal user, string project)
+    {
+        var visible = await VisibleProjectsAsync(user, db);
+        return visible is null || visible.Contains(project);
+    }
+
+    private static bool IsAdmin(ClaimsPrincipal user) => ProjectVisibility.IsAdmin(user);
 
     /// <summary>Every workflow must live in a managed project; the name is matched case-insensitively.</summary>
     private static async Task<bool> ProjectExistsAsync(CiDbContext db, string projectName) =>

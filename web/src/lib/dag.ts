@@ -67,8 +67,14 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
   };
   keys.forEach(computeLayer);
 
-  // BFS from the roots orders jobs within each layer; the first job of a layer
-  // rides the main line, its parallel siblings queue below it.
+  // Lane assignment: jobs inherit the lane of one of their needs so a branch
+  // keeps its own horizontal row across the whole graph. Per-layer indexing
+  // would place unrelated jobs in the same row and visually chain them (e.g.
+  // an independent root sitting left of a later branch). Within a layer a
+  // lane is used once; when the preferred (parent) lane is taken we prefer a
+  // lane that continues no other job's chain, falling back to any free lane.
+  const laneOf = new Map<string, number>();
+  let prevLaneOccupants = new Map<number, string[]>(); // lane -> jobs on it in the previous layer
   const byLayer = new Map<number, string[]>();
   const visited = new Set<string>();
   const queue = keys.filter((k) => (byKey.get(k)?.needs.length ?? 0) === 0);
@@ -92,6 +98,38 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
     }
   }
 
+  for (const [, laneKeys] of [...byLayer.entries()].sort((a, b) => a[0] - b[0])) {
+    const usedThisLayer = new Set<number>();
+    const assigned = new Map<string, number>();
+    for (const key of laneKeys) {
+      const needs = byKey.get(key)!.needs;
+      const preferred = needs.filter((n) => laneOf.has(n)).map((n) => laneOf.get(n)!);
+      let lane = preferred.find((l) => !usedThisLayer.has(l)) ?? -1;
+      if (lane < 0) {
+        // Free lanes that no previous-layer job occupies first, so we do not
+        // visually extend an unrelated chain to the right.
+        const maxSoFar = Math.max(0, ...laneOf.values(), ...usedThisLayer);
+        for (let l = 0; l <= maxSoFar + 1 && lane < 0; l++) {
+          if (usedThisLayer.has(l)) continue;
+          const occupants = prevLaneOccupants.get(l) ?? [];
+          if (occupants.every((o) => needs.includes(o))) lane = l;
+        }
+      }
+      if (lane < 0) {
+        for (let l = 0; lane < 0; l++) {
+          if (!usedThisLayer.has(l)) lane = l;
+        }
+      }
+      assigned.set(key, lane);
+      usedThisLayer.add(lane);
+    }
+    prevLaneOccupants = new Map<number, string[]>();
+    for (const [key, lane] of assigned) {
+      laneOf.set(key, lane);
+      prevLaneOccupants.set(lane, [...(prevLaneOccupants.get(lane) ?? []), key]);
+    }
+  }
+
   const nodes: DagNode[] = [];
 
   const startX = MARGIN + DAG_RADIUS;
@@ -100,8 +138,9 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
 
   const jobNodeByKey = new Map<string, DagNode>();
   for (const [layer, laneKeys] of [...byLayer.entries()].sort((a, b) => a[0] - b[0])) {
-    laneKeys.forEach((jobKey, lane) => {
+    laneKeys.forEach((jobKey) => {
       const jobRun = byKey.get(jobKey)!;
+      const lane = laneOf.get(jobKey) ?? 0;
       const node: DagNode = {
         kind: "job",
         jobKey,

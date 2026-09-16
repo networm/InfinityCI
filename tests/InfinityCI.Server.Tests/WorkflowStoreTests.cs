@@ -4,6 +4,7 @@ using InfinityCI.Server.Jobs;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
+using InfinityCI.Server.Realtime;
 
 namespace InfinityCI.Server.Tests;
 
@@ -17,7 +18,7 @@ public class WorkflowStoreTests : IDisposable
         _options = new CiServerOptions { DataDir = _dir, CreateSampleWorkflow = false };
     }
 
-    private WorkflowStore CreateStore() => new(Options.Create(_options), new WorkflowGitStore(Options.Create(_options), NullLogger<WorkflowGitStore>.Instance), NullLogger<WorkflowStore>.Instance);
+    private WorkflowStore CreateStore() => new(Options.Create(_options), new WorkflowGitStore(Options.Create(_options), NullLogger<WorkflowGitStore>.Instance), new ChangeEvents(NullLogger<ChangeEvents>.Instance), NullLogger<WorkflowStore>.Instance);
 
     private void WriteWorkflow(string workflowName, string yaml)
     {

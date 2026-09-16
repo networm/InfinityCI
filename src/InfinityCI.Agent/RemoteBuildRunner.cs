@@ -68,21 +68,67 @@ public sealed class RemoteBuildRunner(
 
             var overall = JobRunStatus.Success;
             var lastExitCode = 0;
+
+            // Job-level timeout; user cancellation (cts) stays distinguishable.
+            using var timeoutSource = new CancellationTokenSource();
+            if (job.Timeout is { } jobTimeout)
+                timeoutSource.CancelAfter(jobTimeout);
+            using var stepBase = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, timeoutSource.Token);
+
             for (var i = 0; i < job.Steps.Count; i++)
             {
                 var step = job.Steps[i];
                 var startLine = cursor.Value;
                 await SendStep(assignment.RunId, jobRunId, jobKey, i, JobRunStatus.Running, startLine, startLine);
 
-                lastExitCode = await RunStepAsync(assignment, job, step, workspace, cts.Token, cursor, i);
+                var exitCode = -1;
+                var timedOut = false;
+                var maxAttempts = Math.Max(1, step.Retry + 1);
+                for (var attempt = 1; attempt <= maxAttempts; attempt++)
+                {
+                    if (attempt > 1)
+                        await SendLog(assignment.RunId, jobRunId, jobKey, i, cursor.Take(),
+                            $"[agent] attempt {attempt - 1}/{maxAttempts} failed; retrying (attempt {attempt}/{maxAttempts}).");
 
-                var failed = lastExitCode != 0;
-                var stepStatus = cts.IsCancellationRequested
+                    // Per-step timeout overrides the job-level one when set.
+                    using var stepCts = CancellationTokenSource.CreateLinkedTokenSource(stepBase.Token);
+                    if (step.Timeout is { } stepTimeout)
+                        stepCts.CancelAfter(stepTimeout);
+
+                    try
+                    {
+                        exitCode = await RunStepAsync(assignment, job, step, workspace, stepCts.Token, cursor, i);
+                        timedOut = false;
+                    }
+                    catch (OperationCanceledException) when (!cts.IsCancellationRequested)
+                    {
+                        // A timeout fired (step or job level) — not a user cancel.
+                        timedOut = true;
+                        exitCode = -1;
+                    }
+
+                    if (!timedOut && exitCode == 0)
+                        break;
+                    if (timedOut || attempt == maxAttempts)
+                        break;
+                    if (cts.IsCancellationRequested || timeoutSource.IsCancellationRequested)
+                        break;
+                }
+
+                var failed = timedOut || exitCode != 0;
+                lastExitCode = exitCode;
+                var stepStatus = cts.IsCancellationRequested && !timedOut
                     ? JobRunStatus.Cancelled
                     : failed ? JobRunStatus.Failed : JobRunStatus.Success;
-                await SendStep(assignment.RunId, jobRunId, jobKey, i, stepStatus, startLine, cursor.Value, lastExitCode);
+                await SendStep(assignment.RunId, jobRunId, jobKey, i, stepStatus, startLine, cursor.Value, exitCode);
 
-                if (cts.IsCancellationRequested)
+                if (timedOut)
+                {
+                    await SendLog(assignment.RunId, jobRunId, jobKey, 0, cursor.Take(),
+                        $"[agent] step '{step.Name}' timed out; killed.");
+                }
+
+                if (cts.IsCancellationRequested && !timedOut)
                 {
                     overall = JobRunStatus.Cancelled;
                     break;

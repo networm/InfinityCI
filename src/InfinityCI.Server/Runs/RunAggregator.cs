@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using InfinityCI.Core;
 using InfinityCI.Server.Agents;
+using InfinityCI.Server.Jobs;
 using InfinityCI.Server.Storage;
 
 namespace InfinityCI.Server.Runs;
@@ -8,11 +9,13 @@ namespace InfinityCI.Server.Runs;
 /// <summary>
 /// Run status aggregation plus needs-based dispatch. After any job run reaches
 /// a terminal state: succeeded jobs release their dependents, failed/cancelled
-/// jobs cascade "skipped" to their transitive dependents (GitHub semantics —
-/// no `if: always()` yet), and the run status is recomputed.
+/// jobs cascade "skipped" to their transitive dependents — except jobs that
+/// declared `if: always()`, which run once their needs are all terminal
+/// (GitHub semantics) — and the run status is recomputed.
 /// </summary>
 public sealed class RunAggregator(
     IServiceScopeFactory scopeFactory,
+    WorkflowStore workflowStore,
     RunEvents events,
     JobLogStore logStore,
     AgentRegistry registry,
@@ -68,6 +71,9 @@ public sealed class RunAggregator(
     /// <summary>One cascade+dispatch pass. Returns true when any job run changed.</summary>
     private async Task<bool> EvaluatePassAsync(RunRepository repo, long runId)
     {
+        var run = await repo.GetRunAsync(runId);
+        if (run is null)
+            return false;
         var jobRuns = await repo.GetJobRunsAsync(runId);
         if (jobRuns.Count == 0)
             return false;
@@ -75,7 +81,14 @@ public sealed class RunAggregator(
         var byKey = jobRuns.ToDictionary(j => j.JobKey, StringComparer.OrdinalIgnoreCase);
         var changed = false;
 
-        // 1) Cascade "skipped" from failed/cancelled roots to transitive dependents.
+        // Job definitions may have changed since the run was created; missing
+        // ones behave like plain (non-always) jobs.
+        var definitions = workflowStore.TryGet(run.WorkflowName)?.Jobs;
+        var isAlways = new Func<string, bool>(key =>
+            definitions?.GetValueOrDefault(key)?.RunAlways == true);
+
+        // 1) Cascade "skipped" from failed/cancelled roots to transitive
+        //    dependents; `if: always()` jobs are immune to the cascade.
         var pendingSkip = new Queue<string>(
             jobRuns.Where(j => j.Status is JobRunStatus.Failed or JobRunStatus.Cancelled).Select(j => j.JobKey));
         var poisoned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -88,6 +101,8 @@ public sealed class RunAggregator(
                          j.Status == JobRunStatus.Queued &&
                          j.Needs.Contains(failedKey, StringComparer.OrdinalIgnoreCase)))
             {
+                if (isAlways(dependent.JobKey))
+                    continue;
                 dependent.Status = JobRunStatus.Skipped;
                 dependent.FinishedAt = DateTimeOffset.UtcNow;
                 await repo.SaveJobRunTransitionAsync(dependent);
@@ -101,14 +116,16 @@ public sealed class RunAggregator(
             }
         }
 
-        // 2) Dispatch queued job runs whose needs are all satisfied. Waiting job
-        // runs stay Queued — the queue IS the waiting state, and only a claim
-        // (local worker or agent coordinator) flips them to Running.
+        // 2) Dispatch queued job runs: plain jobs need every dependency
+        //    succeeded; `if: always()` jobs need every dependency terminal
+        //    (success, failure, cancellation or skip all release them).
         foreach (var jobRun in jobRuns.Where(j => j.Status == JobRunStatus.Queued))
         {
-            var allSucceeded = jobRun.Needs.All(need =>
-                byKey.TryGetValue(need, out var dep) && dep.Status == JobRunStatus.Success);
-            if (!allSucceeded)
+            var always = isAlways(jobRun.JobKey);
+            var satisfied = jobRun.Needs.All(need =>
+                byKey.TryGetValue(need, out var dep)
+                && (always ? dep.Status.IsTerminal() : dep.Status == JobRunStatus.Success));
+            if (!satisfied)
                 continue;
 
             bool dispatched;

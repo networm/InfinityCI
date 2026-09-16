@@ -69,11 +69,14 @@ public static class WorkflowYaml
 
         var paramList = ParseParams(dto.Params);
 
+        var schedules = ParseSchedules(dto.Schedule);
+
         return new Workflow
         {
             Name = dto.Name.Trim(),
             Project = string.IsNullOrWhiteSpace(dto.Project) ? "Default" : dto.Project.Trim(),
             Params = paramList,
+            Schedules = schedules,
             Scm = dto.Scm is null ? null : new ScmConfig
             {
                 Url = dto.Scm.Url?.Trim() ?? "",
@@ -85,12 +88,43 @@ public static class WorkflowYaml
         };
     }
 
+    /// <summary>`schedule:` accepts one cron string or a list of them; each is validated eagerly.</summary>
+    private static IReadOnlyList<string> ParseSchedules(object? raw)
+    {
+        var items = raw switch
+        {
+            null => [],
+            string one => [one],
+            List<object> many => many.Select(v => v?.ToString() ?? "").ToList(),
+            _ => throw new WorkflowYamlException(Msg.T(
+                "'schedule' must be a cron string or a list of cron strings.",
+                "schedule 必须是 cron 字符串或字符串列表。")),
+        };
+        foreach (var item in items)
+        {
+            try
+            {
+                CronSchedule.Parse(item);
+            }
+            catch (CronFormatException ex)
+            {
+                throw new WorkflowYamlException(Msg.T(ex.Message, ex.Message), ex);
+            }
+        }
+        return items;
+    }
+
     private static WorkflowJob ToJob(JobDto dto, string contextEn, string contextZh)
     {
         if (dto.Steps is null || dto.Steps.Count == 0)
             throw new WorkflowYamlException(Msg.T(
                 $"{contextEn} must define at least one step.",
                 $"{contextZh} 至少需要定义一个步骤。"));
+
+        if (dto.If is { } condition && WorkflowJob.NormalizeIf(condition) is not ("always" or ""))
+            throw new WorkflowYamlException(Msg.T(
+                $"{contextEn} has unsupported 'if: {condition}' (only 'always()' is supported).",
+                $"{contextZh} 使用了不支持的 if: {condition}（仅支持 always()）。"));
 
         var steps = new List<JobStep>(dto.Steps.Count);
         for (var i = 0; i < dto.Steps.Count; i++)
@@ -100,6 +134,10 @@ public static class WorkflowYaml
                 throw new WorkflowYamlException(Msg.T(
                     $"{contextEn} step {i + 1} is missing 'command'.",
                     $"{contextZh} 的步骤 {i + 1} 缺少 'command'。"));
+            if (s.Retry < 0)
+                throw new WorkflowYamlException(Msg.T(
+                    $"{contextEn} step {i + 1} has a negative 'retry'.",
+                    $"{contextZh} 的步骤 {i + 1} 的 retry 不能为负数。"));
             steps.Add(new JobStep
             {
                 Name = string.IsNullOrWhiteSpace(s.Name) ? $"step {i + 1}" : s.Name.Trim(),
@@ -107,6 +145,8 @@ public static class WorkflowYaml
                 Shell = string.IsNullOrWhiteSpace(s.Shell) ? null : s.Shell.Trim(),
                 ContinueOnError = s.ContinueOnError,
                 Environment = s.Env ?? new Dictionary<string, string>(),
+                Retry = s.Retry,
+                Timeout = ParseTimeout(s.TimeoutMinutes, s.TimeoutSeconds, $"{contextEn} step {i + 1}", $"{contextZh} 的步骤 {i + 1}"),
             });
         }
 
@@ -116,7 +156,19 @@ public static class WorkflowYaml
             Needs = dto.Needs ?? [],
             Environment = dto.Env ?? new Dictionary<string, string>(),
             Steps = steps,
+            If = string.IsNullOrWhiteSpace(dto.If) ? null : dto.If.Trim(),
+            Timeout = ParseTimeout(dto.TimeoutMinutes, dto.TimeoutSeconds, contextEn, contextZh),
         };
+    }
+
+    private static TimeSpan? ParseTimeout(int? minutes, int? seconds, string contextEn, string contextZh)
+    {
+        if ((minutes.HasValue && minutes.Value < 0) || (seconds.HasValue && seconds.Value < 0))
+            throw new WorkflowYamlException(Msg.T(
+                $"{contextEn} has a negative 'timeout_minutes'/'timeout_seconds'.",
+                $"{contextZh} 的 timeout_minutes/timeout_seconds 不能为负数。"));
+        var totalSeconds = (minutes ?? 0) * 60 + (seconds ?? 0);
+        return totalSeconds > 0 ? TimeSpan.FromSeconds(totalSeconds) : null;
     }
 
     /// <summary>Needs must reference existing jobs and must not form cycles.</summary>
@@ -210,6 +262,7 @@ public static class WorkflowYaml
         public string? Name { get; set; }
         public string? Project { get; set; }
         public Dictionary<string, object>? Params { get; set; }
+        public object? Schedule { get; set; }
         public ScmDto? Scm { get; set; }
         public Dictionary<string, JobDto>? Jobs { get; set; }
         public string? RunsOn { get; set; }
@@ -222,6 +275,9 @@ public static class WorkflowYaml
         public string? RunsOn { get; set; }
         public List<string>? Needs { get; set; }
         public Dictionary<string, string>? Env { get; set; }
+        public string? If { get; set; }
+        public int? TimeoutMinutes { get; set; }
+        public int? TimeoutSeconds { get; set; }
         public List<StepDto>? Steps { get; set; }
     }
 
@@ -231,6 +287,9 @@ public static class WorkflowYaml
         public string? Command { get; set; }
         public string? Shell { get; set; }
         public bool ContinueOnError { get; set; }
+        public int Retry { get; set; }
+        public int? TimeoutMinutes { get; set; }
+        public int? TimeoutSeconds { get; set; }
         public Dictionary<string, string>? Env { get; set; }
     }
 }

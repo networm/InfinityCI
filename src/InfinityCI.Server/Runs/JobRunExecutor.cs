@@ -64,7 +64,12 @@ public sealed class JobRunExecutor(
             }
         }
 
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        // Job-level timeout runs from the first step (linked to user cancel so
+        // an explicit cancellation is still distinguishable from a timeout).
+        using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        if (job.Timeout is { } jobTimeout)
+            jobCts.CancelAfter(jobTimeout);
+
         var overall = JobRunStatus.Success;
         try
         {
@@ -80,38 +85,83 @@ public sealed class JobRunExecutor(
                 result.Status = JobRunStatus.Running;
                 result.StartedAt = DateTimeOffset.UtcNow;
                 result.StartLine = await logStore.GetEndLineAsync(jobRun.RunId, workflow, runNumber, jobRun.JobKey);
-                await PersistAsync(repo, jobRun, cts.Token);
+                await PersistAsync(repo, jobRun, jobCts.Token);
 
-                var exitCode = await RunStepAsync(jobRun, job, step, workspace, i, workflow, runNumber, runParams, cts.Token);
+                var exitCode = -1;
+                var timedOut = false;
+                var maxAttempts = Math.Max(1, step.Retry + 1);
+                for (var attempt = 1; attempt <= maxAttempts; attempt++)
+                {
+                    if (attempt > 1)
+                        await Append(jobRun, workflow, runNumber, i, $"[server] attempt {attempt - 1}/{maxAttempts} failed; retrying (attempt {attempt}/{maxAttempts}).");
+
+                    // Per-step timeout overrides the job-level one when set.
+                    using var stepCts = CancellationTokenSource.CreateLinkedTokenSource(jobCts.Token);
+                    if (step.Timeout is { } stepTimeout)
+                        stepCts.CancelAfter(stepTimeout);
+
+                    try
+                    {
+                        exitCode = await RunStepAsync(jobRun, job, step, workspace, i, workflow, runNumber, runParams, stepCts.Token);
+                        timedOut = false;
+                    }
+                    catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+                    {
+                        // A timeout fired (step or job level) — the user is not cancelling.
+                        timedOut = true;
+                        exitCode = -1;
+                    }
+
+                    if (!timedOut && exitCode == 0)
+                        break;
+                    if (timedOut || attempt == maxAttempts)
+                        break;
+                    if (jobCts.IsCancellationRequested)
+                        break;
+                }
 
                 result.ExitCode = exitCode;
                 result.FinishedAt = DateTimeOffset.UtcNow;
                 result.EndLine = await logStore.GetEndLineAsync(jobRun.RunId, workflow, runNumber, jobRun.JobKey);
 
-                if (cts.IsCancellationRequested)
+                if (jobCts.IsCancellationRequested && !timedOut)
                 {
+                    // The user/server cancelled the job (a timeout would have timedOut=true).
                     result.Status = JobRunStatus.Cancelled;
                     overall = JobRunStatus.Cancelled;
                 }
-                else if (exitCode == 0)
+                else if (!timedOut && exitCode == 0)
                 {
                     result.Status = JobRunStatus.Success;
                 }
-                else if (step.ContinueOnError)
-                {
-                    result.Status = JobRunStatus.Failed;
-                    await Append(jobRun, workflow, runNumber, i, $"[server] step '{step.Name}' failed with exit code {exitCode}; continuing (continue_on_error).");
-                }
                 else
                 {
+                    // Failed step (non-zero exit or timeout).
                     result.Status = JobRunStatus.Failed;
-                    overall = JobRunStatus.Failed;
-                    for (var j = i + 1; j < job.Steps.Count; j++)
-                        jobRun.Steps[j].Status = JobRunStatus.Skipped;
-                    await Append(jobRun, workflow, runNumber, i, $"[server] step '{step.Name}' failed with exit code {exitCode}; skipping remaining steps.");
+                    if (timedOut)
+                    {
+                        var limit = step.Timeout ?? job.Timeout ?? Timeout.InfiniteTimeSpan;
+                        await Append(jobRun, workflow, runNumber, i, $"[server] step '{step.Name}' timed out after {FormatLimit(limit)}; killed.");
+                    }
+                    else
+                    {
+                        await Append(jobRun, workflow, runNumber, i, $"[server] step '{step.Name}' failed with exit code {exitCode}.");
+                    }
+
+                    if (step.ContinueOnError)
+                    {
+                        await Append(jobRun, workflow, runNumber, i, "[server] continuing (continue_on_error).");
+                    }
+                    else
+                    {
+                        overall = JobRunStatus.Failed;
+                        for (var j = i + 1; j < job.Steps.Count; j++)
+                            jobRun.Steps[j].Status = JobRunStatus.Skipped;
+                        await Append(jobRun, workflow, runNumber, i, "[server] skipping remaining steps.");
+                    }
                 }
 
-                await PersistAsync(repo, jobRun, cts.Token);
+                await PersistAsync(repo, jobRun, jobCts.Token);
                 if (overall is JobRunStatus.Failed or JobRunStatus.Cancelled)
                     break;
             }
@@ -156,6 +206,9 @@ public sealed class JobRunExecutor(
 
     private Task Append(JobRun jobRun, string workflow, int runNumber, int stepIndex, string text) =>
         logStore.AppendAndPublishAsync(events, jobRun.RunId, workflow, runNumber, jobRun.JobKey, stepIndex, text);
+
+    private static string FormatLimit(TimeSpan limit) =>
+        limit >= TimeSpan.FromMinutes(1) ? $"{limit.TotalMinutes:0.#} min" : $"{limit.TotalSeconds:0.#} s";
 
     private async Task<int> RunStepAsync(JobRun jobRun, WorkflowJob job, JobStep step, string workspace, int stepIndex, string workflow, int runNumber, IReadOnlyDictionary<string, string> runParams, CancellationToken ct)
     {

@@ -55,6 +55,13 @@ public sealed class WorkflowState
     public required string WorkflowName { get; set; }
     public bool Enabled { get; set; } = true;
     public string? WebhookToken { get; set; }
+
+    /// <summary>Shared secret for HMAC-SHA256 request signing of push webhooks; null = unsigned.</summary>
+    public string? WebhookSecret { get; set; }
+
+    /// <summary>Comma-separated branch patterns (`release/*`, `main`) a push webhook must match; null = any branch.</summary>
+    public string? WebhookBranches { get; set; }
+
     public string? NotifyWebhookUrl { get; set; }
     public DateTimeOffset UpdatedUtc { get; set; }
 }
@@ -95,6 +102,18 @@ public sealed class AgentEnrollment
     public int MaxConcurrentBuilds { get; set; } = 1;
     public DateTimeOffset CreatedUtc { get; set; }
     public string? UsedByAgentId { get; set; }
+}
+
+/// <summary>User-scoped API token for machine/CLI access (sent as `Authorization: Bearer`).
+/// Only a PBKDF2 hash is stored; the plaintext is shown once at creation.</summary>
+public sealed class ApiToken
+{
+    public long Id { get; set; }
+    public long UserId { get; set; }
+    public required string Name { get; set; }
+    public required string TokenHash { get; set; }
+    public DateTimeOffset CreatedUtc { get; set; }
+    public DateTimeOffset? LastUsedUtc { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

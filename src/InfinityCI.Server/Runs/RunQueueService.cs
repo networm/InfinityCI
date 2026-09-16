@@ -90,6 +90,7 @@ public sealed class RunQueueService(
                 RunId = run.Id,
                 JobKey = jobKey,
                 RunsOn = job.RunsOn,
+                Project = workflow.Project,
                 Needs = job.Needs.ToList(),
                 Status = JobRunStatus.Queued,
                 CreatedAt = DateTimeOffset.UtcNow,

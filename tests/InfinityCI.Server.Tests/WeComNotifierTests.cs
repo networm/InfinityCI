@@ -8,6 +8,8 @@ using InfinityCI.Server.Runs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using InfinityCI.Server.Realtime;
+using Microsoft.Extensions.Options;
 
 namespace InfinityCI.Server.Tests;
 
@@ -97,6 +99,12 @@ public class WeComNotifierTests
 
     private sealed class StubWorkflowControl(string url) : WorkflowControlService(
         new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+        new WorkflowStore(Options.Create(new CiServerOptions { DataDir = "." }),
+            new WorkflowGitStore(Options.Create(new CiServerOptions { DataDir = "." }),
+                NullLogger<WorkflowGitStore>.Instance),
+            new ChangeEvents(NullLogger<ChangeEvents>.Instance),
+            NullLogger<WorkflowStore>.Instance),
+        new ChangeEvents(NullLogger<ChangeEvents>.Instance),
         NullLogger<WorkflowControlService>.Instance)
     {
         public override Task<Dictionary<string, string>> GetNotifyUrlsAsync(CancellationToken ct = default) =>

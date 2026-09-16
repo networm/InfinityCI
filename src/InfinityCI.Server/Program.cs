@@ -12,6 +12,7 @@ using InfinityCI.Server.Realtime;
 using InfinityCI.Server.Runs;
 using InfinityCI.Server.Storage;
 using static InfinityCI.Server.Storage.DbMigrator;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Localization;
@@ -54,9 +55,19 @@ builder.Services.AddDbContext<CiDbContext>((sp, db) =>
     db.UseSqlite(options.DbConnectionString);
 });
 
-// Cookie authentication: login via /api/auth/login, 401 (no redirects) for APIs.
+// Authentication for both audiences: browsers use the session cookie, CLI and
+// machine callers use `Authorization: Bearer <api token>`. The "Smart" policy
+// scheme forwards each request to the matching provider.
 builder.Services
-    .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddAuthentication("Smart")
+    .AddPolicyScheme("Smart", "Cookie or API token", options =>
+    {
+        options.ForwardDefaultSelector = context =>
+            context.Request.Headers.Authorization.ToString().StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                ? "ApiToken"
+                : CookieAuthenticationDefaults.AuthenticationScheme;
+    })
+    .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthenticationHandler>("ApiToken", _ => { })
     .AddCookie(options =>
     {
         options.ExpireTimeSpan = TimeSpan.FromDays(7);
@@ -89,9 +100,12 @@ builder.Services.AddSingleton<WorkflowControlService>();
 builder.Services.AddSingleton<WeComNotifier>();
 builder.Services.AddSingleton<CredentialStore>();
 builder.Services.AddSingleton<RunEvents>();
+builder.Services.AddSingleton<ChangeEvents>();
 builder.Services.AddSingleton<JobLogStore>();
 builder.Services.AddSingleton<WorkflowGitStore>();
 builder.Services.AddSingleton<WorkflowStore>();
+builder.Services.AddSingleton<WorkflowDirectory>();
+builder.Services.AddSingleton<QueueSnapshot>();
 builder.Services.AddScoped<RunRepository>();
 
 // Agent infrastructure (gRPC hub, pull dispatch, lease watchdog).
@@ -112,6 +126,8 @@ builder.Services.AddSingleton<WorkflowStore>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WorkflowStore>());
 builder.Services.AddSingleton<RunQueueService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RunQueueService>());
+// Scheduled triggers start after recovery (they await queue.Ready themselves).
+builder.Services.AddHostedService<InfinityCI.Server.Scheduling.CronScheduler>();
 
 var app = builder.Build();
 

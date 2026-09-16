@@ -17,6 +17,7 @@ public sealed class CiDbContext(DbContextOptions<CiDbContext> options) : DbConte
     public DbSet<JobRun> JobRuns => Set<JobRun>();
     public DbSet<AgentRecord> Agents => Set<AgentRecord>();
     public DbSet<AgentEnrollment> AgentEnrollments => Set<AgentEnrollment>();
+    public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -86,6 +87,7 @@ public sealed class CiDbContext(DbContextOptions<CiDbContext> options) : DbConte
             e.Property(x => x.Id).ValueGeneratedOnAdd();
             e.Property(x => x.JobKey).IsRequired();
             e.Property(x => x.RunsOn).IsRequired();
+            e.Property(x => x.Project).IsRequired();
             e.Property(x => x.StepsJson).IsRequired();
             e.Property(x => x.NeedsJson).IsRequired();
             e.HasIndex(x => new { x.RunId, x.JobKey });
@@ -110,6 +112,19 @@ public sealed class CiDbContext(DbContextOptions<CiDbContext> options) : DbConte
             e.Property(x => x.Name).IsRequired();
             e.Property(x => x.CreatedUtc).HasConversion(
                 new ValueConverter<DateTimeOffset, long>(v => v.ToUnixTimeMilliseconds(), v => DateTimeOffset.FromUnixTimeMilliseconds(v)));
+        });
+
+        modelBuilder.Entity<ApiToken>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedOnAdd();
+            e.Property(x => x.Name).IsRequired();
+            e.Property(x => x.TokenHash).IsRequired();
+            e.HasIndex(x => x.UserId);
+            e.Property(x => x.CreatedUtc).HasConversion(
+                new ValueConverter<DateTimeOffset, long>(v => v.ToUnixTimeMilliseconds(), v => DateTimeOffset.FromUnixTimeMilliseconds(v)));
+            e.Property(x => x.LastUsedUtc).HasConversion(
+                new ValueConverter<DateTimeOffset?, long?>(v => v.HasValue ? v.Value.ToUnixTimeMilliseconds() : null, v => v.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds(v.Value) : null));
         });
     }
 
