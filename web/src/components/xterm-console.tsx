@@ -62,6 +62,17 @@ export function XtermConsole({ lines }: { lines: LogLine[] }) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // xterm selections are its own overlay, not a native DOM selection, so the
+    // browser's default copy shortcut has nothing to copy — handle it here.
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown") return true;
+      const mod = event.ctrlKey || event.metaKey;
+      const isCopyKey =
+        (mod && event.key.toLowerCase() === "c") || (event.ctrlKey && event.key === "Insert");
+      if (!isCopyKey || !term.hasSelection()) return true;
+      void navigator.clipboard?.writeText(term.getSelection()).catch(() => {});
+      return false;
+    });
     term.open(host);
     fit.fit();
     termRef.current = term;
