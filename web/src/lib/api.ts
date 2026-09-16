@@ -7,6 +7,7 @@ import type {
   DashboardItem,
   EnrolledAgent,
   LogLine,
+  NotifyChannel,
   QueueItemInfo,
   WorkflowRuntimeState,
   Me,
@@ -114,16 +115,18 @@ export const api = {
     ),
   revokeWebhookToken: (name: string) =>
     request<unknown>(`/api/jobs/${encodeURIComponent(name)}/webhook-token`, { method: "DELETE" }),
-  setNotifyWebhook: (name: string, url: string | null) =>
-    request<{ name: string; url: string | null }>(`/api/jobs/${encodeURIComponent(name)}/notify-webhook`, {
-      method: "PUT",
-      body: JSON.stringify({ url }),
-    }),
-  setWebhookConfig: (name: string, payload: { secret?: string; branches?: string }) =>
-    request<{ name: string; hasSecret: boolean; branches: string | null }>(
+  setWebhookConfig: (name: string, payload: { secret?: string; branches?: string; events?: string }) =>
+    request<{ name: string; hasSecret: boolean; branches: string | null; events: string }>(
       `/api/jobs/${encodeURIComponent(name)}/webhook-config`,
       { method: "PUT", body: JSON.stringify(payload) },
     ),
+  notifyChannels: (name: string) =>
+    request<{ channels: NotifyChannel[] }>(`/api/jobs/${encodeURIComponent(name)}/notify-channels`),
+  setNotifyChannels: (name: string, channels: NotifyChannel[]) =>
+    request<{ name: string; channels: NotifyChannel[] }>(`/api/jobs/${encodeURIComponent(name)}/notify-channels`, {
+      method: "PUT",
+      body: JSON.stringify({ channels }),
+    }),
 
   // user API tokens
   tokens: () => request<ApiTokenInfo[]>("/api/tokens"),

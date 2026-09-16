@@ -38,6 +38,14 @@ export interface WorkflowRuntimeState {
   enabled: boolean;
   webhookToken: string | null;
   notifyWebhookUrl: string | null;
+  webhookEvents: string | null;
+}
+
+/** One outbound notification channel: wecom | dingtalk | slack | webhook | email. */
+export interface NotifyChannel {
+  type: string;
+  target: string;
+  events: "always" | "failure";
 }
 
 export interface WorkflowParam {

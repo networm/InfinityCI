@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using InfinityCI.Core;
 using InfinityCI.Server.Realtime;
 using InfinityCI.Server.Storage;
@@ -111,9 +112,28 @@ public class WorkflowControlService(IServiceScopeFactory scopeFactory, WorkflowS
             .FirstOrDefaultAsync(ct);
     }
 
-    public async Task SetNotifyWebhookUrlAsync(string workflowName, string? url)
+    /// <summary>All notification channels configured for one workflow. Falls back to
+    /// the legacy single WeCom URL column when the channels JSON is absent.</summary>
+    public virtual async Task<List<NotifyChannel>> GetNotifyChannelsAsync(string workflowName, CancellationToken ct = default)
     {
-        await UpsertAsync(workflowName, state => state.NotifyWebhookUrl = string.IsNullOrWhiteSpace(url) ? null : url.Trim());
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CiDbContext>();
+        var record = await db.WorkflowStates.AsNoTracking()
+            .FirstOrDefaultAsync(w => w.WorkflowName == workflowName, ct);
+        if (record is null)
+            return [];
+        if (!string.IsNullOrEmpty(record.NotifyChannelsJson))
+            return JsonSerializer.Deserialize<List<NotifyChannel>>(record.NotifyChannelsJson) ?? [];
+        return string.IsNullOrEmpty(record.NotifyWebhookUrl)
+            ? []
+            : [new NotifyChannel("wecom", record.NotifyWebhookUrl, "always")];
+    }
+
+    /// <summary>Replaces the workflow's notification channels; an empty list clears them.</summary>
+    public async Task SetNotifyChannelsAsync(string workflowName, IReadOnlyList<NotifyChannel> channels)
+    {
+        var json = channels.Count == 0 ? null : JsonSerializer.Serialize(channels);
+        await UpsertAsync(workflowName, state => state.NotifyChannelsJson = json);
     }
 
     /// <summary>Enabled map across all workflows (missing rows default to enabled).</summary>
@@ -122,17 +142,6 @@ public class WorkflowControlService(IServiceScopeFactory scopeFactory, WorkflowS
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CiDbContext>();
         return await db.WorkflowStates.ToDictionaryAsync(w => w.WorkflowName, w => w.Enabled, ct);
-    }
-
-    /// <summary>All notify URLs for workflows that have one configured.</summary>
-    public virtual async Task<Dictionary<string, string>> GetNotifyUrlsAsync(CancellationToken ct = default)
-    {
-        using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<CiDbContext>();
-        return await db.WorkflowStates
-            .Where(w => w.NotifyWebhookUrl != null)
-            .Select(w => new { w.WorkflowName, w.NotifyWebhookUrl })
-            .ToDictionaryAsync(x => x.WorkflowName, x => x.NotifyWebhookUrl!, ct);
     }
 
     private async Task UpsertAsync(string workflowName, Action<WorkflowState> mutate)

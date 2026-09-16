@@ -43,6 +43,7 @@ builder.Host.UseSerilog((context, configuration) =>
 builder.Services.Configure<CiServerOptions>(builder.Configuration.GetSection(CiServerOptions.SectionName));
 // Also expose the bound instance directly for consumers taking CiServerOptions.
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<CiServerOptions>>().Value);
+builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
 
 // LDAP directory login (disabled unless InfinityCI:Ldap:Enabled is true).
 builder.Services.Configure<LdapOptions>(builder.Configuration.GetSection(LdapOptions.SectionName));
@@ -98,6 +99,16 @@ builder.Services.AddSignalR().AddJsonProtocol(o =>
 builder.Services.AddHttpClient("wecom");
 builder.Services.AddSingleton<WorkflowControlService>();
 builder.Services.AddSingleton<WeComNotifier>();
+builder.Services.AddSingleton<DingTalkNotifier>();
+builder.Services.AddSingleton<SlackNotifier>();
+builder.Services.AddSingleton<GenericWebhookNotifier>();
+builder.Services.AddSingleton<EmailNotifier>();
+builder.Services.AddSingleton<INotifier>(sp => sp.GetRequiredService<WeComNotifier>());
+builder.Services.AddSingleton<INotifier>(sp => sp.GetRequiredService<DingTalkNotifier>());
+builder.Services.AddSingleton<INotifier>(sp => sp.GetRequiredService<SlackNotifier>());
+builder.Services.AddSingleton<INotifier>(sp => sp.GetRequiredService<GenericWebhookNotifier>());
+builder.Services.AddSingleton<INotifier>(sp => sp.GetRequiredService<EmailNotifier>());
+builder.Services.AddSingleton<NotificationDispatcher>();
 builder.Services.AddSingleton<CredentialStore>();
 builder.Services.AddSingleton<InfinityCI.Server.Scm.CommitStatusReporter>();
 builder.Services.AddSingleton<RunEvents>();
@@ -200,8 +211,8 @@ if (Directory.Exists(distDir))
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Subscribe WeCom notifications before the server starts accepting triggers.
-app.Services.GetRequiredService<WeComNotifier>()
+// Subscribe notification channels before the server starts accepting triggers.
+app.Services.GetRequiredService<NotificationDispatcher>()
     .Subscribe(app.Services.GetRequiredService<RunEvents>());
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTimeOffset.UtcNow }));
