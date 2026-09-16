@@ -67,14 +67,33 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
   };
   keys.forEach(computeLayer);
 
-  // Lane assignment: jobs inherit the lane of one of their needs so a branch
-  // keeps its own horizontal row across the whole graph. Per-layer indexing
-  // would place unrelated jobs in the same row and visually chain them (e.g.
-  // an independent root sitting left of a later branch). Within a layer a
-  // lane is used once; when the preferred (parent) lane is taken we prefer a
-  // lane that continues no other job's chain, falling back to any free lane.
+  // Longest path from each job DOWN to a terminal (in the dependents
+  // direction). Within a layer, the job with the tallest remaining chain
+  // claims the spine first, so the main line is the fullest chain (e.g.
+  // build→test→deploy→notify) rather than an alphabetically lucky root.
+  const dependents = new Map<string, string[]>();
+  for (const key of keys) dependents.set(key, []);
+  for (const job of jobRuns) {
+    for (const need of job.needs) dependents.get(need)?.push(job.jobKey);
+  }
+  const heightOf = new Map<string, number>();
+  const computeHeight = (key: string): number => {
+    const known = heightOf.get(key);
+    if (known !== undefined) return known;
+    const list = dependents.get(key) ?? [];
+    const height = list.length === 0 ? 0 : 1 + Math.max(...list.map(computeHeight));
+    heightOf.set(key, height);
+    return height;
+  };
+  keys.forEach(computeHeight);
+
+  // Lane assignment: jobs prefer the lane of one of their needs (a branch
+  // keeps its own horizontal row), otherwise they take the LOWEST free lane
+  // in their layer. This packs parallel branches tightly under the spine, so
+  // the top row is the fullest and lower rows hold progressively fewer nodes.
+  // Cross-row edges are routed through the gutters between lanes (see
+  // elbowTo), so two nodes sharing a row never implies a dependency.
   const laneOf = new Map<string, number>();
-  let prevLaneOccupants = new Map<number, string[]>(); // lane -> jobs on it in the previous layer
   const byLayer = new Map<number, string[]>();
   const visited = new Set<string>();
   const queue = keys.filter((k) => (byKey.get(k)?.needs.length ?? 0) === 0);
@@ -100,33 +119,24 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
 
   for (const [, laneKeys] of [...byLayer.entries()].sort((a, b) => a[0] - b[0])) {
     const usedThisLayer = new Set<number>();
-    const assigned = new Map<string, number>();
-    for (const key of laneKeys) {
+    const ordered = [...laneKeys].sort((a, b) => (heightOf.get(b) ?? 0) - (heightOf.get(a) ?? 0));
+    for (const key of ordered) {
       const needs = byKey.get(key)!.needs;
-      const preferred = needs.filter((n) => laneOf.has(n)).map((n) => laneOf.get(n)!);
-      let lane = preferred.find((l) => !usedThisLayer.has(l)) ?? -1;
-      if (lane < 0) {
-        // Free lanes that no previous-layer job occupies first, so we do not
-        // visually extend an unrelated chain to the right.
-        const maxSoFar = Math.max(0, ...laneOf.values(), ...usedThisLayer);
-        for (let l = 0; l <= maxSoFar + 1 && lane < 0; l++) {
-          if (usedThisLayer.has(l)) continue;
-          const occupants = prevLaneOccupants.get(l) ?? [];
-          if (occupants.every((o) => needs.includes(o))) lane = l;
-        }
-      }
+      // Continue on a parent's lane when one is free — at the LOWEST free
+      // parent lane, so chains pack upward and the top row stays the fullest.
+      const freePreferred = needs
+        .filter((n) => laneOf.has(n))
+        .map((n) => laneOf.get(n)!)
+        .filter((l) => !usedThisLayer.has(l))
+        .sort((a, b) => a - b);
+      let lane = freePreferred[0] ?? -1;
       if (lane < 0) {
         for (let l = 0; lane < 0; l++) {
           if (!usedThisLayer.has(l)) lane = l;
         }
       }
-      assigned.set(key, lane);
-      usedThisLayer.add(lane);
-    }
-    prevLaneOccupants = new Map<number, string[]>();
-    for (const [key, lane] of assigned) {
       laneOf.set(key, lane);
-      prevLaneOccupants.set(lane, [...(prevLaneOccupants.get(lane) ?? []), key]);
+      usedThisLayer.add(lane);
     }
   }
 
@@ -170,22 +180,50 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
   };
   nodes.push(end);
 
-  // Horizontal-only line when both endpoints share a row; otherwise a rounded
-  // elbow: horizontal, quarter-turn, vertical, quarter-turn, horizontal.
+  // Cross-row edges travel through the GUTTER between lanes: exit the source
+  // with a short stub, turn into the half-lane gap, run horizontally there,
+  // then turn into the target. A long edge therefore passes UNDER/OVER the
+  // nodes between instead of running straight through them — two nodes on the
+  // same row never look like a left-to-right sequence. Same-row edges are
+  // also diverted into a gutter when other nodes sit between the endpoints.
+  // Edges sharing a gutter are staggered a few pixels apart so parallel runs
+  // stay distinguishable.
+  const GUTTER = LANE_GAP / 2;
+  const STUB = 14;
+  const TURN = 10;
+  const maxLane = Math.max(0, ...nodes.filter((n) => n.kind === "job").map((n) => n.lane));
+  const gutterUse = new Map<string, number>();
   const elbowTo = (from: DagNode, toX: number, toCy: number): string => {
     const x1 = from.cx + DAG_RADIUS;
-    if (Math.abs(from.cy - toCy) < 1) {
+    const sameRow = Math.abs(from.cy - toCy) < 1;
+    const blockedOnRow =
+      sameRow &&
+      nodes.some(
+        (n) =>
+          n.kind === "job" &&
+          n.cy === from.cy &&
+          n.cx > from.cx + DAG_RADIUS &&
+          n.cx < toX - DAG_RADIUS,
+      );
+    if (sameRow && !blockedOnRow) {
       return `M ${x1} ${from.cy} L ${toX} ${toCy}`;
     }
-    const dir = toCy > from.cy ? 1 : -1;
-    const corner = Math.min(16, Math.abs(toCy - from.cy) / 2, Math.max(8, Math.abs(toX - x1) / 2));
-    const turnX = toX - corner;
+    // Route through the gutter below the source row; when there is no lane
+    // below, use the gutter above so the path stays inside the canvas.
+    const dir = sameRow ? (from.lane < maxLane ? 1 : -1) : toCy > from.cy ? 1 : -1;
+    const band = `gutter-${from.cy}|${dir}`;
+    const nth = gutterUse.get(band) ?? 0;
+    gutterUse.set(band, nth + 1);
+    const travelY = from.cy + dir * (GUTTER + nth * 8);
+    const exitTurnX = x1 + STUB;
+    const enterTurnX = Math.max(exitTurnX + 2 * TURN + 2, toX - STUB);
     return [
       `M ${x1} ${from.cy}`,
-      `L ${turnX - corner} ${from.cy}`,
-      `Q ${turnX} ${from.cy} ${turnX} ${from.cy + dir * corner}`,
-      `L ${turnX} ${toCy - dir * corner}`,
-      `Q ${turnX} ${toCy} ${toX} ${toCy}`,
+      `L ${exitTurnX - TURN} ${from.cy}`,
+      `Q ${exitTurnX} ${from.cy} ${exitTurnX} ${travelY}`,
+      `L ${enterTurnX} ${travelY}`,
+      `Q ${enterTurnX} ${toCy} ${enterTurnX + TURN} ${toCy}`,
+      `L ${toX} ${toCy}`,
     ].join(" ");
   };
 
@@ -240,7 +278,6 @@ export function layoutDag(jobRuns: JobRun[], runStatus: RunStatus | null): DagLa
     });
   }
 
-  const maxLane = Math.max(0, ...nodes.filter((n) => n.kind === "job").map((n) => n.lane));
   return {
     nodes,
     edges,
