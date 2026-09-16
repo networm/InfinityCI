@@ -192,6 +192,8 @@ const en = {
     retryFromFailedStep: "Retry from failed step",
     cancelRun: "Cancel run",
     filterJobs: "Filter jobs",
+    collapseJobs: "Collapse job list",
+    expandJobs: "Expand job list",
     local: "Local",
     noMatchingJobs: "No matching jobs",
     selectJobHint: "Select a job on the left to view its log.",

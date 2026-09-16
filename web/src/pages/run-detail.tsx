@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
-import { Ban, ChevronDown, ChevronRight, Download, RotateCcw } from "lucide-react";
+import { Ban, ChevronDown, ChevronLeft, ChevronRight, Download, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "@tanstack/react-router";
 
@@ -30,6 +30,7 @@ export function BuildDetailPage() {
   const [logs, setLogs] = useState<LogsByJob>({});
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [jobFilter, setJobFilter] = useState("");
+  const [jobsCollapsed, setJobsCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -216,34 +217,57 @@ export function BuildDetailPage() {
       />
 
       <div className="flex gap-4">
-        {/* Parallel jobs sidebar */}
-        <aside className="w-60 shrink-0">
-          <input
-            value={jobFilter}
-            onChange={(e) => setJobFilter(e.target.value)}
-            placeholder={t("runDetail.filterJobs")}
-            className="mb-2 w-full rounded-md border border-line px-2.5 py-1.5 text-sm outline-none focus:border-link"
-          />
-          <div className="overflow-hidden rounded-md border border-line bg-canvas">
-            {filteredJobs.map((job) => (
-              <button
-                key={job.id}
-                type="button"
-                onClick={() => setSelectedJob(job.jobKey)}
-                className={
-                  "flex w-full items-center gap-2 border-b border-line-muted px-3 py-2 text-left text-sm last:border-0 hover:bg-canvas-subtle " +
-                  (currentJob?.jobKey === job.jobKey ? "bg-link-subtle font-medium" : "")
-                }
-              >
-                <StatusIcon status={job.status} size={14} />
-                <span className="truncate">{job.jobKey}</span>
-                <span className="ml-auto text-xs text-fg-muted">
-                  {job.runsOn.startsWith("agent") ? t("editor.runsOnAgent") : t("runDetail.local")}
-                </span>
-              </button>
-            ))}
-            {filteredJobs.length === 0 && <div className="px-3 py-3 text-xs text-fg-muted">{t("runDetail.noMatchingJobs")}</div>}
-          </div>
+        {/* Parallel jobs sidebar — collapsible to give the log more room */}
+        <aside className={jobsCollapsed ? "flex w-10 shrink-0 flex-col items-center" : "w-60 shrink-0"}>
+          {jobsCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setJobsCollapsed(false)}
+              title={t("runDetail.expandJobs")}
+              className="rounded-md border border-line p-1.5 text-fg-muted hover:bg-hover"
+            >
+              <ChevronRight size={14} />
+            </button>
+          ) : (
+            <>
+              <div className="mb-2 flex w-full items-center gap-1.5">
+                <input
+                  value={jobFilter}
+                  onChange={(e) => setJobFilter(e.target.value)}
+                  placeholder={t("runDetail.filterJobs")}
+                  className="min-w-0 flex-1 rounded-md border border-line px-2.5 py-1.5 text-sm outline-none focus:border-link"
+                />
+                <button
+                  type="button"
+                  onClick={() => setJobsCollapsed(true)}
+                  title={t("runDetail.collapseJobs")}
+                  className="shrink-0 rounded-md border border-line p-1.5 text-fg-muted hover:bg-hover"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+              </div>
+              <div className="w-full overflow-hidden rounded-md border border-line bg-canvas">
+                {filteredJobs.map((job) => (
+                  <button
+                    key={job.id}
+                    type="button"
+                    onClick={() => setSelectedJob(job.jobKey)}
+                    className={
+                      "flex w-full items-center gap-2 border-b border-line-muted px-3 py-2 text-left text-sm last:border-0 hover:bg-canvas-subtle " +
+                      (currentJob?.jobKey === job.jobKey ? "bg-link-subtle font-medium" : "")
+                    }
+                  >
+                    <StatusIcon status={job.status} size={14} />
+                    <span className="truncate">{job.jobKey}</span>
+                    <span className="ml-auto text-xs text-fg-muted">
+                      {job.runsOn.startsWith("agent") ? t("editor.runsOnAgent") : t("runDetail.local")}
+                    </span>
+                  </button>
+                ))}
+                {filteredJobs.length === 0 && <div className="px-3 py-3 text-xs text-fg-muted">{t("runDetail.noMatchingJobs")}</div>}
+              </div>
+            </>
+          )}
         </aside>
 
         {/* Selected job: per-step consoles */}

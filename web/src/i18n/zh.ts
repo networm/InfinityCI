@@ -192,6 +192,8 @@ const zh = {
     retryFromFailedStep: "从失败的步骤重试",
     cancelRun: "取消运行",
     filterJobs: "筛选任务",
+    collapseJobs: "收起任务列表",
+    expandJobs: "展开任务列表",
     local: "本地",
     noMatchingJobs: "无匹配任务",
     selectJobHint: "选择左侧任务查看日志。",
