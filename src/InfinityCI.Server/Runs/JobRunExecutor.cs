@@ -23,7 +23,7 @@ public sealed class JobRunExecutor(
 {
     private readonly CiServerOptions _options = optionsAccessor.Value;
 
-    public async Task<JobRunStatus> ExecuteAsync(JobRun jobRun, WorkflowJob job, ScmConfig? workflowScm, string workflow, int runNumber, IReadOnlyDictionary<string, string> runParams, CancellationToken stoppingToken)
+    public async Task<JobRunStatus> ExecuteAsync(JobRun jobRun, WorkflowJob job, ScmConfig? workflowScm, string workflow, int runNumber, IReadOnlyDictionary<string, string> runParams, string? sourceBranchOverride, TriggerContext? triggerContext, CancellationToken stoppingToken)
     {
         using var scope = scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<RunRepository>();
@@ -39,11 +39,21 @@ public sealed class JobRunExecutor(
 
         // SCM checkout: steps run inside the working copy when the workflow
         // declares an scm block. Failures fail the job like a failed step.
+        // Event-triggered runs (pull requests) override the configured branch.
         if (workflowScm is { } scm)
         {
+            if (sourceBranchOverride is not null)
+                scm = new ScmConfig
+                {
+                    Url = scm.Url,
+                    Branch = sourceBranchOverride,
+                    Ref = null,
+                    Credentials = scm.Credentials,
+                    CommitStatus = scm.CommitStatus,
+                };
             try
             {
-                await Append(jobRun, workflow, runNumber, 0, $"[server] checking out {scm.Url}...");
+                await Append(jobRun, workflow, runNumber, 0, $"[server] checking out {scm.Url}{(sourceBranchOverride is null ? "" : $" (branch {sourceBranchOverride})")}...");
                 var credential = credentialStore.Resolve(scm.Credentials);
                 var checkout = GitSourceFetcher.Fetch(scm, workspace, credential, line => Append(jobRun, workflow, runNumber, 0, line).GetAwaiter().GetResult());
                 jobRun.SourceBranch = checkout.Branch;
@@ -105,7 +115,7 @@ public sealed class JobRunExecutor(
 
                     try
                     {
-                        exitCode = await RunStepAsync(jobRun, job, step, workspace, i, workflow, runNumber, runParams, stepCts.Token);
+                        exitCode = await RunStepAsync(jobRun, job, step, workspace, i, workflow, runNumber, runParams, triggerContext, stepCts.Token);
                         timedOut = false;
                     }
                     catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
@@ -213,7 +223,7 @@ public sealed class JobRunExecutor(
     private static string FormatLimit(TimeSpan limit) =>
         limit >= TimeSpan.FromMinutes(1) ? $"{limit.TotalMinutes:0.#} min" : $"{limit.TotalSeconds:0.#} s";
 
-    private async Task<int> RunStepAsync(JobRun jobRun, WorkflowJob job, JobStep step, string workspace, int stepIndex, string workflow, int runNumber, IReadOnlyDictionary<string, string> runParams, CancellationToken ct)
+    private async Task<int> RunStepAsync(JobRun jobRun, WorkflowJob job, JobStep step, string workspace, int stepIndex, string workflow, int runNumber, IReadOnlyDictionary<string, string> runParams, TriggerContext? triggerContext, CancellationToken ct)
     {
         var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (key, value) in job.Environment)
@@ -227,6 +237,21 @@ public sealed class JobRunExecutor(
         env["CI"] = "true";
         env["INFINITY_RUN_ID"] = jobRun.RunId.ToString();
         env["INFINITY_JOB_KEY"] = jobRun.JobKey;
+        if (jobRun.SourceBranch is not null)
+            env["INFINITY_COMMIT_BRANCH"] = jobRun.SourceBranch;
+        if (triggerContext is { } ctx)
+        {
+            env["INFINITY_EVENT"] = ctx.Event;
+            env["INFINITY_PROVIDER"] = ctx.Provider;
+            if (ctx.PrNumber is { } prNumber)
+                env["INFINITY_PR_NUMBER"] = prNumber.ToString();
+            if (ctx.PrTitle is not null)
+                env["INFINITY_PR_TITLE"] = ctx.PrTitle;
+            if (ctx.PrSourceBranch is not null)
+                env["INFINITY_PR_SOURCE_BRANCH"] = ctx.PrSourceBranch;
+            if (ctx.PrTargetBranch is not null)
+                env["INFINITY_PR_TARGET_BRANCH"] = ctx.PrTargetBranch;
+        }
 
         var psi = ShellResolver.CreateStartInfo(step.Command, step.Shell, workspace, env);
         using var process = new Process { StartInfo = psi };

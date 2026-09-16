@@ -75,7 +75,9 @@ public sealed class CiDbContext(DbContextOptions<CiDbContext> options) : DbConte
             e.Property(x => x.WorkflowName).IsRequired();
             e.Property(x => x.Project).IsRequired();
             e.Property(x => x.ParamsJson).IsRequired();
+            e.Property(x => x.TriggerContextJson).IsRequired();
             e.Ignore(x => x.Params);
+            e.Ignore(x => x.TriggerContext);
             e.HasIndex(x => new { x.Project, x.Id });
             e.HasIndex(x => new { x.WorkflowName, x.RunNumber }).IsUnique();
             ConfigureDates(e.Property(x => x.CreatedAt), e.Property(x => x.StartedAt), e.Property(x => x.FinishedAt));

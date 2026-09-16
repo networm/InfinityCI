@@ -50,8 +50,30 @@ public sealed class Run
     [JsonIgnore]
     public string ParamsJson { get; set; } = "{}";
 
+    /// <summary>Branch override for event-triggered runs (e.g. a pull request's source
+    /// branch); when set it takes precedence over the scm branch/ref for checkout.</summary>
+    public string? SourceBranch { get; set; }
+
+    /// <summary>EF-mapped JSON mirror of <see cref="TriggerContext"/>.</summary>
+    [JsonIgnore]
+    public string TriggerContextJson { get; set; } = "{}";
+
+    /// <summary>Normalized SCM event context for webhook-triggered runs; null on manual/cron runs.</summary>
+    [JsonIgnore]
+    public TriggerContext? TriggerContext { get; set; }
+
     public bool IsTerminal => Status is RunStatus.Success or RunStatus.Failed or RunStatus.Cancelled;
 }
+
+/// <summary>Normalized webhook event context attached to event-triggered runs.</summary>
+public sealed record TriggerContext(
+    string Provider,          // github | gitlab | gitea | generic
+    string Event,             // push | pull_request
+    long? PrNumber = null,
+    string? PrAction = null,
+    string? PrTitle = null,
+    string? PrSourceBranch = null,
+    string? PrTargetBranch = null);
 
 /// <summary>One job of a run. Job runs of the same run execute in parallel.</summary>
 public sealed class JobRun

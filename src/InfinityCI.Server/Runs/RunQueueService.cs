@@ -36,7 +36,7 @@ public sealed class RunQueueService(
     /// <summary>Completes once startup recovery has finished; triggers before this may race recovery.</summary>
     public Task Ready => _recoveryCompleted.Task;
 
-    public async Task<Run> TriggerAsync(string workflowName, string triggeredBy, IReadOnlyDictionary<string, string>? paramValues = null, CancellationToken ct = default)
+    public async Task<Run> TriggerAsync(string workflowName, string triggeredBy, IReadOnlyDictionary<string, string>? paramValues = null, TriggerContext? triggerContext = null, string? sourceBranch = null, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workflowName);
         var workflow = workflowStore.TryGet(workflowName) ?? throw new InvalidOperationException(Msg.T($"Unknown workflow '{workflowName}'.", $"未知任务「{workflowName}」。"));
@@ -73,6 +73,8 @@ public sealed class RunQueueService(
             Project = workflow.Project,
             TriggeredBy = triggeredBy,
             Params = values,
+            SourceBranch = string.IsNullOrWhiteSpace(sourceBranch) ? null : sourceBranch.Trim(),
+            TriggerContext = triggerContext,
             Status = RunStatus.Running, // jobs are enqueued immediately below
             CreatedAt = DateTimeOffset.UtcNow,
             StartedAt = DateTimeOffset.UtcNow,
@@ -271,7 +273,7 @@ public sealed class RunQueueService(
             if (jobRun is null)
                 continue;
 
-            var (job, workflowScm, runParams, workflowName, runNumber) = await ResolveJobAsync(jobRun, stoppingToken);
+            var (job, workflowScm, runParams, workflowName, runNumber, sourceBranch, triggerContext) = await ResolveJobAsync(jobRun, stoppingToken);
             if (job is null)
             {
                 jobRun.Status = JobRunStatus.Failed;
@@ -291,7 +293,7 @@ public sealed class RunQueueService(
             _active[jobRun.Id] = cts;
             try
             {
-                await _executor.ExecuteAsync(jobRun, job, workflowScm, workflowName, runNumber, runParams, cts.Token);
+                await _executor.ExecuteAsync(jobRun, job, workflowScm, workflowName, runNumber, runParams, sourceBranch, triggerContext, cts.Token);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -311,14 +313,14 @@ public sealed class RunQueueService(
         }
     }
 
-    private async Task<(WorkflowJob?, ScmConfig?, IReadOnlyDictionary<string, string>, string, int)> ResolveJobAsync(JobRun jobRun, CancellationToken ct)
+    private async Task<(WorkflowJob?, ScmConfig?, IReadOnlyDictionary<string, string>, string, int, string?, TriggerContext?)> ResolveJobAsync(JobRun jobRun, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var run = await scope.ServiceProvider.GetRequiredService<RunRepository>().GetRunAsync(jobRun.RunId, ct);
         if (run is null)
-            return (null, null, new Dictionary<string, string>(), "", 0);
+            return (null, null, new Dictionary<string, string>(), "", 0, null, null);
         var workflow = workflowStore.TryGet(run.WorkflowName);
-        return (workflow?.Jobs.GetValueOrDefault(jobRun.JobKey), workflow?.Scm, run.Params, run.WorkflowName, run.RunNumber);
+        return (workflow?.Jobs.GetValueOrDefault(jobRun.JobKey), workflow?.Scm, run.Params, run.WorkflowName, run.RunNumber, run.SourceBranch, run.TriggerContext);
     }
 
     /// <summary>Job runs left unfinished by a previous server run are requeued.</summary>

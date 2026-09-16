@@ -24,6 +24,7 @@ public sealed class RunRepository(CiDbContext db)
     {
         run.Version = 1;
         run.ParamsJson = JsonSerializer.Serialize(run.Params);
+        run.TriggerContextJson = JsonSerializer.Serialize(run.TriggerContext);
         await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
         var max = await db.Runs.AsNoTracking()
             .Where(r => r.WorkflowName == run.WorkflowName)
@@ -47,7 +48,7 @@ public sealed class RunRepository(CiDbContext db)
     {
         var run = await db.Runs.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
         if (run is not null)
-            run.Params = JsonSerializer.Deserialize<Dictionary<string, string>>(run.ParamsJson) ?? new(StringComparer.OrdinalIgnoreCase);
+            RestoreRun(run);
         return run;
     }
 
@@ -57,8 +58,16 @@ public sealed class RunRepository(CiDbContext db)
         var run = await db.Runs.AsNoTracking()
             .FirstOrDefaultAsync(x => x.WorkflowName == workflowName && x.RunNumber == runNumber, ct);
         if (run is not null)
-            run.Params = JsonSerializer.Deserialize<Dictionary<string, string>>(run.ParamsJson) ?? new(StringComparer.OrdinalIgnoreCase);
+            RestoreRun(run);
         return run;
+    }
+
+    private static void RestoreRun(Run run)
+    {
+        run.Params = JsonSerializer.Deserialize<Dictionary<string, string>>(run.ParamsJson) ?? new(StringComparer.OrdinalIgnoreCase);
+        run.TriggerContext = run.TriggerContextJson is "{}" or ""
+            ? null
+            : JsonSerializer.Deserialize<TriggerContext>(run.TriggerContextJson);
     }
 
     public async Task<List<Run>> ListRunsAsync(int skip, int take, string? workflowName = null, CancellationToken ct = default)

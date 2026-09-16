@@ -1,3 +1,4 @@
+using System.Text.Json;
 using InfinityCI.Server.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -16,7 +17,7 @@ public static class DbMigrator
 {
     /// <summary>Schema version of the model before RunNumber was introduced.</summary>
     public const int BaselineVersion = 5;
-    public const int LatestVersion = 7;
+    public const int LatestVersion = 8;
 
     private sealed record MigrationStep(int FromVersion, int ToVersion, string Name, Action<CiDbContext> Apply);
 
@@ -53,6 +54,28 @@ public static class DbMigrator
                 );
                 CREATE INDEX IF NOT EXISTS IX_ApiTokens_UserId ON ApiTokens (UserId);
                 """);
+        }),
+        new(7, 8, "add run trigger context and per-workflow webhook events / notification channels", db =>
+        {
+            AddColumnIfMissing(db, "Runs", "SourceBranch", "TEXT");
+            AddColumnIfMissing(db, "Runs", "TriggerContextJson", "TEXT NOT NULL DEFAULT '{}'");
+            if (TableExists(db, "WorkflowStates"))
+            {
+                AddColumnIfMissing(db, "WorkflowStates", "WebhookEvents", "TEXT");
+                AddColumnIfMissing(db, "WorkflowStates", "NotifyChannelsJson", "TEXT");
+                // Carry the legacy single WeCom URL over as a wecom channel entry.
+                var legacy = db.WorkflowStates
+                    .Where(w => w.NotifyWebhookUrl != null && w.NotifyWebhookUrl != "")
+                    .ToList();
+                foreach (var record in legacy)
+                {
+                    if (!string.IsNullOrEmpty(record.NotifyChannelsJson))
+                        continue;
+                    record.NotifyChannelsJson = JsonSerializer.Serialize(
+                        new List<NotifyChannel> { new("wecom", record.NotifyWebhookUrl!, "always") });
+                }
+                db.SaveChanges();
+            }
         }),
     ];
 
@@ -127,20 +150,17 @@ public static class DbMigrator
     /// entirely — EnsureCreated builds it from the current model.</summary>
     private static void AddColumnIfMissing(CiDbContext db, string table, string column, string definition)
     {
+        if (!TableExists(db, table))
+            return;
+
         var connection = db.Database.GetDbConnection();
         if (connection.State != System.Data.ConnectionState.Open)
             connection.Open();
 
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{table}';";
-            if (Convert.ToInt64(command.ExecuteScalar()) == 0)
-                return;
-        }
-        using (var command = connection.CreateCommand())
-        {
             command.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}';";
-            if (Convert.ToInt64(command.ExecuteScalar()) > 0)
+            if (Convert.ToInt32(command.ExecuteScalar()) > 0)
                 return;
         }
         using (var command = connection.CreateCommand())
@@ -148,6 +168,17 @@ public static class DbMigrator
             command.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
             command.ExecuteNonQuery();
         }
+    }
+
+    private static bool TableExists(CiDbContext db, string table)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            connection.Open();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{table}';";
+        return Convert.ToInt32(command.ExecuteScalar()) > 0;
     }
 
     private static void Stamp(CiDbContext db, int version)

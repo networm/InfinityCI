@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InfinityCI.Server.Jobs;
 
-public sealed record WorkflowRuntimeState(string WorkflowName, bool Enabled, string? WebhookToken, string? NotifyWebhookUrl, bool HasWebhookSecret, string? WebhookBranches);
+public sealed record WorkflowRuntimeState(string WorkflowName, bool Enabled, string? WebhookToken, string? NotifyWebhookUrl, bool HasWebhookSecret, string? WebhookBranches, string? WebhookEvents);
 
 /// <summary>
 /// Runtime toggles per workflow (enabled, incoming-webhook token, WeCom notify
@@ -23,9 +23,9 @@ public class WorkflowControlService(IServiceScopeFactory scopeFactory, WorkflowS
         var record = await db.WorkflowStates.AsNoTracking()
             .FirstOrDefaultAsync(w => w.WorkflowName == workflowName, ct);
         if (record is null)
-            return new WorkflowRuntimeState(workflowName, Enabled: true, WebhookToken: null, NotifyWebhookUrl: null, HasWebhookSecret: false, WebhookBranches: null);
+            return new WorkflowRuntimeState(workflowName, Enabled: true, WebhookToken: null, NotifyWebhookUrl: null, HasWebhookSecret: false, WebhookBranches: null, WebhookEvents: null);
         return new WorkflowRuntimeState(record.WorkflowName, record.Enabled, record.WebhookToken, record.NotifyWebhookUrl,
-            HasWebhookSecret: !string.IsNullOrEmpty(record.WebhookSecret), WebhookBranches: record.WebhookBranches);
+            HasWebhookSecret: !string.IsNullOrEmpty(record.WebhookSecret), WebhookBranches: record.WebhookBranches, WebhookEvents: record.WebhookEvents);
     }
 
     /// <summary>Workflow must be enabled for triggering.</summary>
@@ -49,10 +49,10 @@ public class WorkflowControlService(IServiceScopeFactory scopeFactory, WorkflowS
     public async Task RevokeWebhookTokenAsync(string workflowName) =>
         await UpsertAsync(workflowName, state => state.WebhookToken = null);
 
-    /// <summary>Sets the webhook HMAC secret and/or the branch filter. A null
-    /// field keeps the current value; an empty string clears it. The secret is
-    /// write-only through the API (state exposes only HasWebhookSecret).</summary>
-    public async Task SetWebhookConfigAsync(string workflowName, string? secret, string? branches)
+    /// <summary>Sets the webhook HMAC secret, branch filter and/or enabled event
+    /// kinds. A null field keeps the current value; an empty string clears it. The
+    /// secret is write-only through the API (state exposes only HasWebhookSecret).</summary>
+    public async Task SetWebhookConfigAsync(string workflowName, string? secret, string? branches, string? events = null)
     {
         await UpsertAsync(workflowName, state =>
         {
@@ -60,6 +60,8 @@ public class WorkflowControlService(IServiceScopeFactory scopeFactory, WorkflowS
                 state.WebhookSecret = string.IsNullOrWhiteSpace(secret) ? null : secret.Trim();
             if (branches is not null)
                 state.WebhookBranches = string.IsNullOrWhiteSpace(branches) ? null : branches.Trim();
+            if (events is not null)
+                state.WebhookEvents = string.IsNullOrWhiteSpace(events) ? null : events.Trim();
         });
     }
 
@@ -95,6 +97,17 @@ public class WorkflowControlService(IServiceScopeFactory scopeFactory, WorkflowS
         return await db.WorkflowStates.AsNoTracking()
             .Where(w => w.WorkflowName == workflowName)
             .Select(w => w.WebhookBranches)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    /// <summary>Enabled webhook event kinds ("push", "pr"); null = push only.</summary>
+    public async Task<string?> GetWebhookEventsAsync(string workflowName, CancellationToken ct = default)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CiDbContext>();
+        return await db.WorkflowStates.AsNoTracking()
+            .Where(w => w.WorkflowName == workflowName)
+            .Select(w => w.WebhookEvents)
             .FirstOrDefaultAsync(ct);
     }
 

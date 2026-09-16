@@ -8,6 +8,7 @@ using InfinityCI.Server.Auth;
 using InfinityCI.Server.Jobs;
 using InfinityCI.Server.Notifications;
 using InfinityCI.Server.Realtime;
+using InfinityCI.Server.Scm;
 using Microsoft.AspNetCore.DataProtection;
 using InfinityCI.Server.Runs;
 using LibGit2Sharp;
@@ -36,7 +37,7 @@ public record EnabledToggleRequest(bool Enabled);
 public record NotifyWebhookRequest(string? Url);
 public record WebhookTriggerRequest(Dictionary<string, string>? Params);
 public record EnabledRequest(bool Enabled);
-public record WebhookConfigRequest(string? Secret, string? Branches);
+public record WebhookConfigRequest(string? Secret, string? Branches, string? Events);
 public record CreateApiTokenRequest(string Name);
 
 public static class CiApi
@@ -398,9 +399,9 @@ public static class CiApi
         app.MapPut("/api/jobs/{name}/webhook-config", async (string name, WebhookConfigRequest request, WorkflowControlService control, WorkflowStore store) =>
         {
             if (store.TryGet(name) is null) return Results.NotFound();
-            await control.SetWebhookConfigAsync(name, request.Secret, request.Branches);
+            await control.SetWebhookConfigAsync(name, request.Secret, request.Branches, request.Events);
             var state = await control.GetAsync(name);
-            return Results.Ok(new { name, hasSecret = state.HasWebhookSecret, branches = state.WebhookBranches });
+            return Results.Ok(new { name, hasSecret = state.HasWebhookSecret, branches = state.WebhookBranches, events = state.WebhookEvents ?? "push" });
         }).RequireAuthorization("Admins");
 
         app.MapPut("/api/jobs/{name}/notify-webhook", async (string name, NotifyWebhookRequest request, WorkflowControlService control, WorkflowStore store) =>
@@ -833,34 +834,39 @@ public static class CiApi
             if (workflowName is null)
                 return Results.NotFound(new { message = Msg.T("Unknown webhook token.", "未知的 Webhook 令牌。") });
 
-            // Raw body is needed both for HMAC signing and payload parsing.
+            // Raw body is needed both for signature verification and payload parsing.
             string body;
             using (var reader = new StreamReader(http.Request.Body, System.Text.Encoding.UTF8))
                 body = await reader.ReadToEndAsync();
 
-            // Optional HMAC-SHA256 request signing (X-Hub-Signature-256 GitHub
-            // style, or X-Signature). No secret configured = token-in-URL auth only.
+            // Optional request authentication: GitHub/Gitea style HMAC-SHA256
+            // (X-Hub-Signature-256, X-Signature, X-Gitea-Signature) or the GitLab
+            // style plain secret token (X-Gitlab-Token). No secret configured =
+            // token-in-URL auth only.
             var secret = await control.GetWebhookSecretAsync(workflowName);
             if (!string.IsNullOrEmpty(secret))
             {
+                var gitlabToken = http.Request.Headers["X-Gitlab-Token"].FirstOrDefault();
                 var signature = http.Request.Headers["X-Hub-Signature-256"].FirstOrDefault()
-                    ?? http.Request.Headers["X-Signature"].FirstOrDefault();
-                if (signature is null || !VerifyWebhookSignature(secret, body, signature))
+                    ?? http.Request.Headers["X-Signature"].FirstOrDefault()
+                    ?? http.Request.Headers["X-Gitea-Signature"].FirstOrDefault();
+                var authorized = gitlabToken is not null
+                    ? System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                        System.Text.Encoding.UTF8.GetBytes(gitlabToken),
+                        System.Text.Encoding.UTF8.GetBytes(secret))
+                    : signature is not null && VerifyWebhookSignature(secret, body, signature);
+                if (!authorized)
                     return Results.Unauthorized();
             }
 
-            // GitHub sends a ping when a webhook is registered — acknowledge, don't build.
-            if (http.Request.Headers["X-GitHub-Event"].FirstOrDefault() == "ping")
-                return Results.Ok(new { triggered = false, reason = "ping" });
-
-            string? branch = null;
             Dictionary<string, string>? parameters = null;
+            ScmWebhookEvent? evt = null;
             if (body.Length > 0)
             {
                 try
                 {
                     using var doc = JsonDocument.Parse(body);
-                    branch = ExtractBranch(doc.RootElement);
+                    evt = WebhookEventParser.Parse(http.Request.Headers, doc.RootElement);
                     if (doc.RootElement.TryGetProperty("params", out var paramsElement) && paramsElement.ValueKind == JsonValueKind.Object)
                     {
                         parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -873,22 +879,68 @@ public static class CiApi
                     // Non-JSON payloads (plain text) trigger with defaults.
                 }
             }
+            evt ??= new ScmWebhookEvent("generic", "push", Branch: null);
 
-            if (!MatchesBranchFilter(await control.GetWebhookBranchesAsync(workflowName), branch))
+            // Registration handshakes are acknowledged, not built.
+            if (evt.Kind == "ping")
+                return Results.Ok(new { triggered = false, reason = "ping" });
+
+            // Event-kind gating ("push,pr"; push only when unset).
+            var enabled = (await control.GetWebhookEventsAsync(workflowName))?.ToLowerInvariant() ?? "push";
+            var kindKey = evt.Kind == "pull_request" ? "pr" : evt.Kind;
+            if (!enabled.Split(',').Any(k => k.Trim() == kindKey))
                 return Results.Ok(new
                 {
                     triggered = false,
-                    reason = branch is null
+                    reason = Msg.T(
+                        $"event kind '{evt.Kind}' is not enabled for this workflow.",
+                        $"事件类型「{evt.Kind}」未在此任务上启用。"),
+                });
+
+            // A PR closing never represents new code.
+            if (evt.Kind == "pull_request" && evt.PrAction is "closed")
+                return Results.Ok(new { triggered = false, reason = $"pull request {evt.PrAction}" });
+
+            // Branch filter: pushes match the pushed branch, pull requests match
+            // their target branch (GitHub Actions semantics).
+            var filterBranch = evt.Kind == "pull_request"
+                ? evt.PrTargetBranch ?? evt.PrSourceBranch
+                : evt.Branch;
+            if (!MatchesBranchFilter(await control.GetWebhookBranchesAsync(workflowName), filterBranch))
+                return Results.Ok(new
+                {
+                    triggered = false,
+                    reason = filterBranch is null
                         ? Msg.T("payload carried no branch; a branch filter is configured.", "载荷中没有分支信息，而该任务配置了分支过滤。")
-                        : Msg.T($"branch '{branch}' does not match the filter.", $"分支「{branch}」不匹配过滤规则。"),
+                        : Msg.T($"branch '{filterBranch}' does not match the filter.", $"分支「{filterBranch}」不匹配过滤规则。"),
                 });
 
             if (!await control.IsEnabledAsync(workflowName))
                 return Results.Conflict(new { message = Msg.T($"Workflow '{workflowName}' is disabled.", $"任务「{workflowName}」已禁用。") });
             try
             {
-                var run = await queue.TriggerAsync(workflowName, "webhook", parameters);
-                return Results.Ok(new { triggered = true, run.Id, run.WorkflowName, run.Status, run.TriggeredBy });
+                var isPr = evt.Kind == "pull_request";
+                var context = new TriggerContext(
+                    evt.Provider,
+                    evt.Kind,
+                    evt.PrNumber,
+                    evt.PrAction,
+                    evt.PrTitle,
+                    evt.PrSourceBranch,
+                    evt.PrTargetBranch);
+                var triggeredBy = isPr ? $"webhook:pr/#{evt.PrNumber}" : "webhook";
+                var run = await queue.TriggerAsync(workflowName, triggeredBy, parameters, context, isPr ? evt.PrSourceBranch : null);
+                return Results.Ok(new
+                {
+                    triggered = true,
+                    run.Id,
+                    runNumber = run.RunNumber,
+                    run.WorkflowName,
+                    run.Status,
+                    run.TriggeredBy,
+                    evt.Kind,
+                    evt.Provider,
+                });
             }
             catch (InvalidOperationException ex)
             {
@@ -956,21 +1008,6 @@ public static class CiApi
         return CryptographicOperations.FixedTimeEquals(
             System.Text.Encoding.UTF8.GetBytes(expected),
             System.Text.Encoding.UTF8.GetBytes(candidate.ToLowerInvariant()));
-    }
-
-    private static string? ExtractBranch(JsonElement root)
-    {
-        if (root.ValueKind != JsonValueKind.Object)
-            return null;
-        if (root.TryGetProperty("ref", out var refr) && refr.ValueKind == JsonValueKind.String)
-        {
-            var value = refr.GetString() ?? "";
-            const string heads = "refs/heads/";
-            return value.StartsWith(heads, StringComparison.OrdinalIgnoreCase) ? value[heads.Length..] : value;
-        }
-        if (root.TryGetProperty("branch", out var branch) && branch.ValueKind == JsonValueKind.String)
-            return branch.GetString();
-        return null;
     }
 
     /// <summary>Comma-separated wildcard patterns ("main,release/*", "?" = one char);

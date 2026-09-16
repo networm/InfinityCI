@@ -62,9 +62,20 @@ public sealed class WorkflowState
     /// <summary>Comma-separated branch patterns (`release/*`, `main`) a push webhook must match; null = any branch.</summary>
     public string? WebhookBranches { get; set; }
 
+    /// <summary>Enabled webhook event kinds (comma-separated: "push", "pr"); null = push only.</summary>
+    public string? WebhookEvents { get; set; }
+
     public string? NotifyWebhookUrl { get; set; }
+
+    /// <summary>JSON list of notification channels ({type, target, events}); supersedes <see cref="NotifyWebhookUrl"/>.</summary>
+    public string? NotifyChannelsJson { get; set; }
+
     public DateTimeOffset UpdatedUtc { get; set; }
 }
+
+/// <summary>One outbound notification channel configured for a workflow.
+/// Type: wecom | dingtalk | slack | webhook | email. Events: always | failure.</summary>
+public sealed record NotifyChannel(string Type, string Target, string Events = "always");
 
 /// <summary>Named Git credential for private repositories; secret is Data-Protection encrypted.</summary>
 public sealed class StoredCredential
