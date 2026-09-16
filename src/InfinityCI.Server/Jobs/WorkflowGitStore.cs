@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using System.Text;
+using LibGit2Sharp;
 using Microsoft.Extensions.Options;
 
 namespace InfinityCI.Server.Jobs;
@@ -11,11 +11,6 @@ public sealed record WorkflowCommit(string Sha, string Message, string Author, D
 /// tracking its workflow.yml only — a task's config history is fully isolated
 /// from every other task. Logs and workspaces are ignored. .git/info/refs is
 /// refreshed after each commit so dumb-HTTP clones keep working.
-///
-/// All repository operations shell out to the git CLI (LibGit2Sharp stays
-/// reserved for source checkouts): the CLI handles huge repositories, exotic
-/// pack layouts and future format changes without a managed-object-model
-/// rewrite, and it keeps one battle-tested code path on every platform.
 /// </summary>
 public sealed class WorkflowGitStore(IOptions<CiServerOptions> optionsAccessor, ILogger<WorkflowGitStore> logger)
 {
@@ -32,14 +27,9 @@ public sealed class WorkflowGitStore(IOptions<CiServerOptions> optionsAccessor, 
     {
         var dir = WorkflowDir(workflowName);
         Directory.CreateDirectory(dir);
-        if (!Directory.Exists(Path.Combine(dir, ".git")))
+        if (!Repository.IsValid(dir))
         {
-            // Dumb-HTTP clone expects refs/heads/master (the endpoint is explicit).
-            if (RunGit(dir, false, false, "init", "-b", "master") is null)
-                RunGit(dir, false, false, "init");
-            RunGit(dir, false, false, "symbolic-ref", "HEAD", "refs/heads/master");
-            RunGit(dir, false, false, "config", "user.name", IdentityName);
-            RunGit(dir, false, false, "config", "user.email", IdentityEmail);
+            Repository.Init(dir);
             // Keep runtime directories out of the config repo's history.
             File.WriteAllText(Path.Combine(dir, ".gitignore"), "logs/\nworkspaces/\n");
             logger.LogInformation("Initialized config repository for workflow {Workflow} at {Path}", workflowName, dir);
@@ -50,35 +40,37 @@ public sealed class WorkflowGitStore(IOptions<CiServerOptions> optionsAccessor, 
     /// <summary>Commits pending config changes for one workflow. No-op when clean.</summary>
     public void CommitAll(string workflowName, string message, string author)
     {
-        var dir = RepoPath(workflowName);
-        if (dir is null)
+        var path = RepoPath(workflowName);
+        if (path is null)
             return;
-        RunGit(dir, false, false, "add", "-A", "--", ".");
-        var status = RunGit(dir, false, false, "status", "--porcelain");
-        if (string.IsNullOrEmpty(status))
-            return; // nothing staged — clean
-        var safeAuthor = author.Replace("\"", "'");
-        RunGit(dir, false, false, "commit", "--allow-empty-message", "-m", message, $"--author={safeAuthor} <{IdentityEmail}>");
-        UpdateInfoRefs(workflowName);
+        using var repo = new Repository(path);
+        Commands.Stage(repo, "*");
+        var isDirty = repo.RetrieveStatus(new StatusOptions()).Any(entry => entry.State != FileStatus.Unaltered && entry.State != FileStatus.Ignored);
+        if (isDirty)
+        {
+            var signature = new Signature(author, IdentityEmail, DateTimeOffset.Now);
+            repo.Commit(message, signature, signature);
+            UpdateInfoRefs(workflowName);
+        }
     }
 
-    /// <summary>History of the task's config commits (commits that touched the
-    /// config file), newest first.</summary>
+    /// <summary>History of the task's config commits, newest first.</summary>
     public IReadOnlyList<WorkflowCommit> History(string workflowName)
     {
-        var dir = RepoPath(workflowName);
-        if (dir is null)
+        var path = RepoPath(workflowName);
+        if (path is null)
             return [];
-        var output = RunGit(dir, false, true, "log", "--pretty=format:%H%x1f%an%x1f%aI%x1f%s", "--", ConfigFileName);
-        if (string.IsNullOrEmpty(output))
-            return [];
+        using var repo = new Repository(path);
         var commits = new List<WorkflowCommit>();
-        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var commit in repo.Commits)
         {
-            var parts = line.Split('\x1f');
-            if (parts.Length < 4 || !DateTimeOffset.TryParse(parts[2], out var when))
+            var entry = commit.Tree[ConfigFileName];
+            if (entry is null)
                 continue;
-            commits.Add(new WorkflowCommit(parts[0], parts[3], parts[1], when));
+            var parent = commit.Parents.FirstOrDefault();
+            var changed = parent is null || parent.Tree[ConfigFileName] is null || parent.Tree[ConfigFileName]!.Target.Sha != entry.Target.Sha;
+            if (changed)
+                commits.Add(new WorkflowCommit(commit.Sha, commit.MessageShort, commit.Author.Name, commit.Author.When));
         }
         return commits;
     }
@@ -86,10 +78,17 @@ public sealed class WorkflowGitStore(IOptions<CiServerOptions> optionsAccessor, 
     /// <summary>The config content at a given commit; null when absent there.</summary>
     public string? ReadAt(string workflowName, string sha)
     {
-        var dir = RepoPath(workflowName);
-        if (dir is null || !IsSafeRevision(sha))
+        var path = RepoPath(workflowName);
+        if (path is null)
             return null;
-        return RunGit(dir, false, true, "show", $"{sha}:{ConfigFileName}");
+        using var repo = new Repository(path);
+        var commit = repo.Lookup<Commit>(sha);
+        if (commit is null)
+            return null;
+        var entry = commit.Tree[ConfigFileName];
+        if (entry?.Target.Id is not { } blobId)
+            return null;
+        return repo.Lookup<Blob>(blobId)?.GetContentText();
     }
 
     /// <summary>Packfile names for the task's repo (dumb-HTTP packs index).</summary>
@@ -138,10 +137,15 @@ public sealed class WorkflowGitStore(IOptions<CiServerOptions> optionsAccessor, 
     /// <summary>Friendly branch name HEAD points at (e.g. "master").</summary>
     public string? BranchName(string workflowName)
     {
-        var dir = RepoPath(workflowName);
-        if (dir is null)
+        try
+        {
+            using var repo = new Repository(RepoPath(workflowName)!);
+            return repo.Head?.FriendlyName;
+        }
+        catch
+        {
             return null;
-        return RunGit(dir, false, true, "rev-parse", "--abbrev-ref", "HEAD");
+        }
     }
 
     /// <summary>Rewrites .git/info/refs (dumb-HTTP protocol index) for one task repo.</summary>
@@ -152,22 +156,18 @@ public sealed class WorkflowGitStore(IOptions<CiServerOptions> optionsAccessor, 
             var path = RepoPath(workflowName);
             if (path is null)
                 return;
+            using var repo = new Repository(path);
             var refsDir = Path.Combine(path, ".git", "info");
             Directory.CreateDirectory(refsDir);
-            var output = RunGit(path, false, true, "show-ref") ?? "";
             var sb = new StringBuilder();
-            foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            foreach (var reference in repo.Refs)
             {
-                var separator = line.IndexOf('\t');
-                if (separator <= 0)
+                var obj = repo.Lookup(reference.TargetIdentifier);
+                var type = obj is Commit ? "commit" : obj is TagAnnotation ? "tag" : null;
+                if (type is null)
                     continue;
-                var sha = line[..separator];
-                var refName = line[(separator + 1)..].Trim();
-                var type = RunGit(path, false, true, "cat-file", "-t", sha)?.Trim();
-                if (type is not ("commit" or "tag"))
-                    continue;
-                sb.Append(sha).Append('\t').Append(type).Append('\t')
-                    .Append(refName).Append('\n');
+                sb.Append(reference.TargetIdentifier).Append('\t').Append(type).Append('\t')
+                    .Append(reference.CanonicalName).Append('\n');
             }
             File.WriteAllText(Path.Combine(refsDir, "refs"), sb.ToString());
         }
@@ -180,62 +180,6 @@ public sealed class WorkflowGitStore(IOptions<CiServerOptions> optionsAccessor, 
     private string? RepoPath(string workflowName)
     {
         var dir = Path.Combine(_options.DataDir, WorkflowStore.Sanitize(workflowName));
-        return Directory.Exists(Path.Combine(dir, ".git")) ? dir : null;
+        return Repository.IsValid(dir) ? dir : null;
     }
-
-    /// <summary>Runs `git <args>` in the repo dir and returns trimmed stdout;
-    /// null on any failure.</summary>
-    private string? RunGit(string workingDir, params object[] args) =>
-        RunGit(workingDir, false, false, args);
-
-    /// <summary>`allowMissing` swallows expected non-zero exits (missing blob,
-    /// empty repo) instead of warning; `allowExitCodeOne` treats exit 1 as success.</summary>
-    private string? RunGit(string workingDir, bool allowExitCodeOne, bool allowMissing, params object[] args)
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "git",
-            WorkingDirectory = workingDir,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            RedirectStandardInput = false,
-        };
-        foreach (var arg in args)
-            psi.ArgumentList.Add(arg.ToString() ?? "");
-
-        using var process = new Process { StartInfo = psi };
-        process.Start();
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit(60_000))
-        {
-            try
-            {
-                process.Kill(entireProcessTree: true);
-            }
-            catch
-            {
-                // already gone
-            }
-            logger.LogWarning("git {Args} timed out in {Dir}", string.Join(' ', args), workingDir);
-            return null;
-        }
-
-        var exit = process.ExitCode;
-        if (exit == 0)
-            return stdout.Result.TrimEnd('\n');
-        if (exit == 1 && allowExitCodeOne)
-            return stdout.Result.TrimEnd('\n');
-        if (allowMissing)
-            return null;
-        logger.LogWarning("git {Args} failed in {Dir} with exit {Exit}: {Error}",
-            string.Join(' ', args), workingDir, exit, stderr.Result.Trim());
-        return null;
-    }
-
-    /// <summary>Revisions reach the CLI only after this check — never raw user input.</summary>
-    private static bool IsSafeRevision(string revision) =>
-        revision.Length is >= 4 and <= 64 && revision.All(c => char.IsAsciiHexDigit(c) || c == '_');
 }
