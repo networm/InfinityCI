@@ -1,4 +1,5 @@
 using InfinityCI.Core;
+using InfinityCI.Server.Realtime;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
@@ -9,7 +10,7 @@ namespace InfinityCI.Server.Jobs;
 /// containing its config (workflow.yml, tracked by the task's own Git repo),
 /// its logs and its workspaces. Changes hot-reload on file changes.
 /// </summary>
-public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, WorkflowGitStore gitStore, ILogger<WorkflowStore> logger) : IHostedService, IDisposable
+public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, WorkflowGitStore gitStore, ChangeEvents events, ILogger<WorkflowStore> logger) : IHostedService, IDisposable
 {
     public const string ConfigFileName = "workflow.yml";
 
@@ -39,6 +40,7 @@ public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, Wor
         foreach (var name in _workflows.Keys)
             gitStore.EnsureRepository(name);
         StartWatcher();
+        _started = true;
         return Task.CompletedTask;
     }
 
@@ -80,6 +82,8 @@ public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, Wor
         return new string(chars);
     }
 
+    private bool _started;
+
     private void Reload()
     {
         var workflows = new Dictionary<string, WorkflowEntry>(StringComparer.OrdinalIgnoreCase);
@@ -100,8 +104,23 @@ public sealed class WorkflowStore(IOptions<CiServerOptions> optionsAccessor, Wor
             }
         }
 
+        var previous = _workflows;
         _workflows = workflows;
         logger.LogInformation("Loaded {Count} workflow(s) from {DataDir}", workflows.Count, _options.DataDir);
+
+        // Notify live subscribers (jobs list / dashboard) of what actually
+        // changed. Skipped for the initial startup load — nothing is listening.
+        if (!_started)
+            return;
+        foreach (var name in previous.Keys.Where(n => !workflows.ContainsKey(n)))
+            _ = events.PublishWorkflowChangedAsync(name, WorkflowChangeKind.Deleted, previous[name].Definition.Project);
+        foreach (var (name, entry) in workflows)
+        {
+            if (!previous.TryGetValue(name, out var old))
+                _ = events.PublishWorkflowChangedAsync(name, WorkflowChangeKind.Added, entry.Definition.Project);
+            else if (!string.Equals(old.RawYaml, entry.RawYaml, StringComparison.Ordinal))
+                _ = events.PublishWorkflowChangedAsync(name, WorkflowChangeKind.Updated, entry.Definition.Project);
+        }
     }
 
     private void StartWatcher()

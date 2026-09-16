@@ -1,30 +1,55 @@
-import { useEffect, useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Copy, History, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { HistoryDrawer } from "@/components/history-drawer";
+import { useTriggerWithParams } from "@/components/trigger-dialog";
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/me-context";
+import { useHubEvent, useHubGroup, useReconnected } from "@/lib/live";
 import type { WorkflowInfo } from "@/lib/types";
 
 export function JobsPage() {
   const { me } = useMe();
+  const navigate = useNavigate();
   const { t } = useTranslation();
+  const { requestTrigger, dialog } = useTriggerWithParams();
   const isAdmin = me?.role === "Admin" || me?.role === "SuperAdmin";
   const [workflows, setWorkflows] = useState<WorkflowInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [historyFor, setHistoryFor] = useState<string | null>(null);
 
-  const reload = () =>
-    api
-      .jobs()
-      .then(setWorkflows)
-      .finally(() => setLoading(false));
+  const reload = useCallback(
+    () =>
+      api
+        .jobs()
+        .then(setWorkflows)
+        .catch((e) => setMessage(e instanceof Error ? e.message : String(e)))
+        .finally(() => setLoading(false)),
+    [],
+  );
 
   useEffect(() => {
     void reload();
+  }, [reload]);
+
+  // Live list: workflow save/delete/enable from any session is broadcast
+  // to the jobs group; coalesce bursts into one debounced reload.
+  useHubGroup(
+    (connection) => connection.invoke("SubscribeJobs"),
+    (connection) => connection.invoke("UnsubscribeJobs"),
+  );
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useHubEvent("workflowChanged", () => {
+    if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    reloadTimer.current = setTimeout(() => void reload(), 300);
+  });
+  useReconnected(() => void reload());
+
+  useEffect(() => () => {
+    if (reloadTimer.current) clearTimeout(reloadTimer.current);
   }, []);
 
   const remove = async (name: string) => {
@@ -37,13 +62,10 @@ export function JobsPage() {
     }
   };
 
-  const trigger = async (name: string) => {
-    try {
-      const run = await api.trigger(name);
-      window.location.assign(`/runs/${run.id}`);
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : String(e));
-    }
+  const trigger = (name: string) => {
+    requestTrigger(name, workflows.find((w) => w.name === name)?.params ?? [], (run) => {
+      navigate({ to: "/runs/$workflow/$runNumber", params: { workflow: run.workflowName, runNumber: String(run.runNumber) } });
+    });
   };
 
   return (
@@ -114,11 +136,11 @@ export function JobsPage() {
                     <div className="flex items-center justify-end gap-2">
                       <button
                         type="button"
-                        onClick={() => void trigger(workflow.name)}
+                        onClick={() => trigger(workflow.name)}
                         className="flex items-center gap-1 rounded-md bg-success-btn px-2 py-1 text-xs text-white hover:bg-success-btn-hover"
                       >
                         <Play size={12} />
-                        Run
+                        {t("common.run")}
                       </button>
                       <button
                         type="button"
@@ -166,6 +188,7 @@ export function JobsPage() {
       )}
 
       {historyFor && <HistoryDrawer name={historyFor} isAdmin={isAdmin} onClose={() => setHistoryFor(null)} />}
+      {dialog}
     </div>
   );
 }

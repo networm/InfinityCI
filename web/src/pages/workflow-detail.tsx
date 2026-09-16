@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import type { HubConnection } from "@microsoft/signalr";
-import { ChevronLeft, ChevronRight, Copy, History, Pencil, Play, RefreshCw, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Copy, History, Pencil, Play, Trash2 } from "lucide-react";
 
 import { HistoryDrawer } from "@/components/history-drawer";
 import { useTriggerWithParams } from "@/components/trigger-dialog";
@@ -10,7 +9,7 @@ import { api, UnauthorizedError } from "@/lib/api";
 import { useMe } from "@/lib/me-context";
 import { useResolveUserName } from "@/lib/user-names";
 import { formatDateTime, formatDuration } from "@/lib/format";
-import { getCiHub } from "@/lib/signalr";
+import { useHubEvent, useHubGroup, useReconnected } from "@/lib/live";
 import { useTranslation } from "react-i18next";
 import type { JobRun, Run, RunsPageItem, WorkflowInfo } from "@/lib/types";
 
@@ -84,67 +83,41 @@ export function WorkflowDetailPage() {
   }, [loadPage]);
 
   // Live updates for the runs currently visible on this page.
-  useEffect(() => {
-    let cancelled = false;
-    let connection: HubConnection | null = null;
-
-    (async () => {
-      try {
-        connection = await getCiHub();
-        if (cancelled) return;
-
-        // Join the dashboard group — runUpdated is broadcast there and to run groups.
-        const initial = await connection.invoke<RunsPageItem[]>("SubscribeDashboard", 0, 30);
-        connection.on("runUpdated", (run: Run) => {
-          if (run.workflowName !== name) return;
-          const exists = itemsRef.current.some((item) => item.run.id === run.id);
-          if (exists) {
-            setItems((prev) => prev.map((item) => (item.run.id === run.id ? { ...item, run } : item)));
-          } else if (pageRef.current === 0) {
-            // New run on the first page: prepend (GitHub style), keep page size.
-            setItems((prev) => [{ run, jobs: [] }, ...prev].slice(0, PAGE_SIZE));
-            setTotal((t) => t + 1);
-          }
-        });
-        connection.on("jobUpdated", (jobRun: JobRun) => {
-          setItems((prev) =>
-            prev.map((item) =>
-              item.run.id === jobRun.runId
-                ? {
-                    ...item,
-                    jobs: item.jobs.some((j) => j.id === jobRun.id)
-                      ? item.jobs.map((j) => (j.id === jobRun.id ? jobRun : j))
-                      : [...item.jobs, jobRun],
-                  }
-                : item,
-            ),
-          );
-        });
-        if (!cancelled && initial.length > 0) {
-          // If the REST page load is older than the snapshot, prefer freshest data.
-          setItems((prev) => {
-            const byId = new Map(prev.map((i) => [i.run.id, i]));
-            // The dashboard snapshot spans all workflows — keep only this one's.
-            for (const fresh of initial) {
-              if (fresh.run.workflowName !== name) continue;
-              const current = byId.get(fresh.run.id);
-              if (!current || fresh.run.version > current.run.version) byId.set(fresh.run.id, fresh);
+  // The dashboard group is where runUpdated/jobUpdated are broadcast.
+  useHubGroup(
+    (connection) => connection.invoke("SubscribeDashboard", 0, 30),
+    (connection) => connection.invoke("UnsubscribeDashboard"),
+    [name],
+  );
+  useHubEvent("runUpdated", (run: Run) => {
+    if (run.workflowName !== name) return;
+    const exists = itemsRef.current.some((item) => item.run.id === run.id);
+    if (exists) {
+      setItems((prev) => prev.map((item) => (item.run.id === run.id ? { ...item, run } : item)));
+    } else if (pageRef.current === 0) {
+      // New run on the first page: prepend (GitHub style), keep page size.
+      setItems((prev) => [{ run, jobs: [] }, ...prev].slice(0, PAGE_SIZE));
+      setTotal((t) => t + 1);
+    }
+  });
+  useHubEvent("jobUpdated", (jobRun: JobRun) => {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.run.id === jobRun.runId
+          ? {
+              ...item,
+              jobs: item.jobs.some((j) => j.id === jobRun.id)
+                ? item.jobs.map((j) => (j.id === jobRun.id ? jobRun : j))
+                : [...item.jobs, jobRun],
             }
-            return [...byId.values()].sort((a, b) => b.run.id - a.run.id).slice(0, PAGE_SIZE);
-          });
-        }
-      } catch {
-        // REST paging/manual refresh still works
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      connection?.off("runUpdated");
-      connection?.off("jobUpdated");
-      connection?.invoke("UnsubscribeDashboard").catch(() => {});
-    };
-  }, [name]);
+          : item,
+      ),
+    );
+  });
+  useReconnected(() => {
+    // Events missed while offline are gone — replay the current page.
+    void loadPage(pageRef.current);
+  });
 
   if (notFound) {
     return (
@@ -167,7 +140,10 @@ export function WorkflowDetailPage() {
         enabled={enabled}
         onTrigger={() => {
           requestTrigger(name, paramDefs, (run) => {
-            window.location.assign(`/runs/${run.id}`);
+            navigate({
+              to: "/runs/$workflow/$runNumber",
+              params: { workflow: run.workflowName, runNumber: String(run.runNumber) },
+            });
           });
         }}
         onHistory={() => setHistoryOpen(true)}
@@ -175,7 +151,7 @@ export function WorkflowDetailPage() {
           if (!window.confirm(t("workflow.confirmDelete", { name }))) return;
           try {
             await api.deleteJob(name);
-            window.location.assign("/jobs");
+            navigate({ to: "/jobs" });
           } catch (e) {
             setMessage(e instanceof Error ? e.message : String(e));
           }
@@ -189,14 +165,6 @@ export function WorkflowDetailPage() {
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-medium text-fg-muted">{t("workflow.historyTitle", { total })}</h2>
-          <button
-            type="button"
-            onClick={() => void loadPage(page)}
-            className="flex items-center gap-1.5 rounded-md border border-line bg-canvas px-2.5 py-1 text-xs hover:bg-hover"
-          >
-            <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
-            {t("common.refresh")}
-          </button>
         </div>
 
         {loading ? (

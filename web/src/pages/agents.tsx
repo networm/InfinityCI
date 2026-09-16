@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import type { HubConnection } from "@microsoft/signalr";
 import { Copy, KeyRound, Power, Trash2 } from "lucide-react";
 
 import { StatusIcon } from "@/components/status-icon";
 import { AgentConfigDialog } from "@/components/agent-config-dialog";
 import { api } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
-import { getCiHub } from "@/lib/signalr";
+import { useHubEvent, useHubGroup, useReconnected } from "@/lib/live";
 import { useTranslation } from "react-i18next";
 import type { CredentialInfo } from "@/lib/types";
 import type { AgentInfo, EnrolledAgent } from "@/lib/types";
@@ -38,31 +37,22 @@ export function AgentsPage() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    let connection: HubConnection | null = null;
-
     void reload();
-    api
-      .agents()
-      .then(setLive)
-      .catch(() => {});
-
-    (async () => {
-      try {
-        connection = await getCiHub();
-        if (cancelled) return;
-        connection.on("agentsUpdated", (snapshot: AgentInfo[]) => setLive(snapshot));
-      } catch {
-        // REST only
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      connection?.off("agentsUpdated");
-      connection?.invoke("UnsubscribeAgents").catch(() => {});
-    };
   }, [reload]);
+
+  // Live agents: the subscription snapshot bootstraps the table, then stats
+  // and lifecycle changes stream in via agentsUpdated.
+  useHubGroup(
+    (connection) => connection.invoke("SubscribeAgents"),
+    (connection) => connection.invoke("UnsubscribeAgents"),
+  );
+  useHubEvent("agentsUpdated", (snapshot: AgentInfo[]) => setLive(snapshot));
+  // Persistent records changed in this or another admin session.
+  useHubEvent("enrolledChanged", () => void reload());
+  useHubEvent("enrollmentsChanged", () => void reload());
+  useReconnected(() => {
+    void reload();
+  });
 
   return (
     <div className="space-y-6">
@@ -362,6 +352,9 @@ function CredentialsSection({ onMessage }: { onMessage: (message: string) => voi
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // Credential edits from any admin session refresh this list live.
+  useHubEvent("credentialsChanged", () => void reload());
 
   return (
     <section>

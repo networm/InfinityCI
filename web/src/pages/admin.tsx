@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/me-context";
+import { useHubEvent, useHubGroup, useReconnected } from "@/lib/live";
 import type { ProjectInfo, UserInfo, UserRole } from "@/lib/types";
 
 export function AdminPage() {
@@ -38,6 +39,14 @@ function ProjectsSection() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // Project changes from any session refresh this section live.
+  useHubGroup(
+    (connection) => connection.invoke("SubscribeProjects"),
+    (connection) => connection.invoke("UnsubscribeProjects"),
+  );
+  useHubEvent("projectsChanged", () => void reload());
+  useReconnected(() => void reload());
 
   return (
     <section>
@@ -133,6 +142,14 @@ function UsersSection() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // User/authorization changes from any session refresh this section live.
+  useHubGroup(
+    (connection) => connection.invoke("SubscribeUsers"),
+    (connection) => connection.invoke("UnsubscribeUsers"),
+  );
+  useHubEvent("usersChanged", () => void reload());
+  useReconnected(() => void reload());
 
   const toggleProject = (projectId: number) => {
     setForm((prev) => ({

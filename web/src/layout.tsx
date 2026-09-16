@@ -5,6 +5,7 @@ import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useMe } from "@/lib/me-context";
 import { useResolveUserName } from "@/lib/user-names";
+import { useConnectionState } from "@/lib/signalr";
 
 const tabs = [
   { to: "/", key: "nav.dashboard" },
@@ -20,6 +21,7 @@ export function AppLayout() {
   const { t } = useTranslation();
   const resolveName = useResolveUserName();
   const location = useRouterState({ select: (s) => s.location.pathname });
+  const connState = useConnectionState((s) => s.state);
 
   return (
     <div className="min-h-screen bg-canvas-subtle text-fg">
@@ -62,7 +64,7 @@ export function AppLayout() {
           <div className="ml-auto flex items-center gap-3 text-sm">
             <ThemeToggle dark />
             <LanguageToggle dark />
-            <span className="text-white/80" title={me?.username}>
+            <Link to="/tokens" className="text-white/80 hover:text-white" title={t("tokens.title")}>
               {(me && resolveName(me.username)) || me?.username}
               <span className="ml-1.5 rounded bg-white/15 px-1.5 py-0.5 text-xs">
                 {me?.role === "SuperAdmin"
@@ -73,7 +75,7 @@ export function AppLayout() {
                       ? t("admin.roleUser")
                       : null}
               </span>
-            </span>
+            </Link>
             <button
               type="button"
               onClick={() => void logout()}
@@ -84,6 +86,19 @@ export function AppLayout() {
           </div>
         </div>
       </header>
+      {(connState === "reconnecting" || connState === "disconnected") && (
+        <div
+          role="status"
+          className={
+            "px-4 py-1.5 text-center text-xs " +
+            (connState === "disconnected"
+              ? "bg-danger-subtle text-danger"
+              : "bg-attention-subtle text-attention")
+          }
+        >
+          {connState === "disconnected" ? t("conn.offline") : t("conn.reconnecting")}
+        </div>
+      )}
       <main className="mx-auto max-w-[1280px] px-4 py-6">
         <Outlet />
       </main>

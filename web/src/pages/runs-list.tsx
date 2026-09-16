@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { RefreshCw } from "lucide-react";
-import type { HubConnection } from "@microsoft/signalr";
 import { useTranslation } from "react-i18next";
 
 import { StatusIcon } from "@/components/status-icon";
 import { api } from "@/lib/api";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import { useResolveUserName } from "@/lib/user-names";
-import { getCiHub } from "@/lib/signalr";
+import { useHubEvent, useHubGroup, useReconnected } from "@/lib/live";
 import type { JobRun, Run, RunsPageItem } from "@/lib/types";
 
 export function RunsListPage() {
@@ -17,81 +15,51 @@ export function RunsListPage() {
   const { t } = useTranslation();
   const [items, setItems] = useState<RunsPageItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
 
   const refresh = useCallback(async () => {
-    setRefreshing(true);
     try {
       setItems(await api.runs(0, 30));
     } catch {
       // keep current list
     } finally {
-      setRefreshing(false);
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    let connection: HubConnection | null = null;
-
     void refresh();
-
-    (async () => {
-      try {
-        connection = await getCiHub();
-        if (cancelled) return;
-
-        connection.on("runUpdated", (run: Run) => {
-          setItems((prev) => prev.map((item) => (item.run.id === run.id ? { ...item, run } : item)));
-        });
-        connection.on("jobUpdated", (jobRun: JobRun) => {
-          setItems((prev) =>
-            prev.map((item) =>
-              item.run.id === jobRun.runId
-                ? {
-                    ...item,
-                    jobs: item.jobs.some((j) => j.id === jobRun.id)
-                      ? item.jobs.map((j) => (j.id === jobRun.id ? jobRun : j))
-                      : [...item.jobs, jobRun],
-                  }
-                : item,
-            ),
-          );
-        });
-
-        const initial = await connection.invoke<RunsPageItem[]>("SubscribeDashboard", 0, 30);
-        if (!cancelled && initial.length > 0) setItems(initial);
-        connection.on("reconnected", async () => {
-          const fresh = await connection!.invoke<RunsPageItem[]>("SubscribeDashboard", 0, 30);
-          if (!cancelled) setItems(fresh);
-        });
-      } catch {
-        // REST refresh already provides data
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      connection?.off("runUpdated");
-      connection?.off("jobUpdated");
-      connection?.invoke("UnsubscribeDashboard").catch(() => {});
-    };
   }, [refresh]);
+
+  // Live updates from the dashboard group, where run/job events are broadcast.
+  useHubGroup(
+    (connection) => connection.invoke("SubscribeDashboard", 0, 30),
+    (connection) => connection.invoke("UnsubscribeDashboard"),
+  );
+  useHubEvent("runUpdated", (run: Run) => {
+    setItems((prev) => prev.map((item) => (item.run.id === run.id ? { ...item, run } : item)));
+  });
+  useHubEvent("jobUpdated", (jobRun: JobRun) => {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.run.id === jobRun.runId
+          ? {
+              ...item,
+              jobs: item.jobs.some((j) => j.id === jobRun.id)
+                ? item.jobs.map((j) => (j.id === jobRun.id ? jobRun : j))
+                : [...item.jobs, jobRun],
+            }
+          : item,
+      ),
+    );
+  });
+  useReconnected(() => {
+    // Events missed while offline are gone — replay a fresh snapshot.
+    void refresh();
+  });
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">{t("nav.runs")}</h1>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          className="flex items-center gap-1.5 rounded-md border border-line bg-canvas px-3 py-1.5 text-sm hover:bg-hover"
-        >
-          <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-          {t("common.refresh")}
-        </button>
-      </div>
+      <h1 className="text-xl font-semibold">{t("nav.runs")}</h1>
 
       {loading ? (
         <div className="text-sm text-fg-muted">{t("common.loading")}</div>

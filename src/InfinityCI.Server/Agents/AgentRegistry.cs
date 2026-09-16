@@ -109,18 +109,41 @@ public sealed class AgentRegistry(ILogger<AgentRegistry> logger)
         if (!_agents.TryGetValue(agentId, out var agent) || !agent.Online)
             return orphaned;
 
-        agent.Online = false;
-        agent.ResponseStream = null;
-        foreach (var (jobRunId, ownerId) in _assignments)
-        {
-            if (ownerId != agentId)
-                continue;
-            if (_assignments.TryRemove(new KeyValuePair<long, string>(jobRunId, ownerId)))
-                orphaned.Add(jobRunId);
-        }
+        TakeOffline(agent);
+        orphaned.AddRange(CollectAssignments(agentId));
         logger.LogWarning("Agent {Name} ({Id}) went offline; {Count} job run(s) orphaned",
             agent.Name, agent.Id, orphaned.Count);
         return orphaned;
+    }
+
+    /// <summary>Removes a deleted agent entirely so it no longer appears in snapshots;
+    /// returns job run ids assigned to it.</summary>
+    public List<long> Remove(string agentId)
+    {
+        var orphaned = new List<long>();
+        if (!_agents.TryRemove(agentId, out var agent))
+            return orphaned;
+
+        TakeOffline(agent);
+        orphaned.AddRange(CollectAssignments(agentId));
+        logger.LogInformation("Agent {Name} ({Id}) deleted; {Count} job run(s) orphaned",
+            agent.Name, agent.Id, orphaned.Count);
+        return orphaned;
+    }
+
+    private void TakeOffline(AgentConnection agent)
+    {
+        agent.Online = false;
+        agent.ResponseStream = null;
+    }
+
+    private IEnumerable<long> CollectAssignments(string agentId)
+    {
+        foreach (var (jobRunId, ownerId) in _assignments)
+        {
+            if (ownerId == agentId && _assignments.TryRemove(new KeyValuePair<long, string>(jobRunId, ownerId)))
+                yield return jobRunId;
+        }
     }
 
     // -- pending queue (pull dispatch) --

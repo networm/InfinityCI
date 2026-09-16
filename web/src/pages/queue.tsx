@@ -1,25 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { api } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
+import { useHubEvent, useHubGroup, useReconnected } from "@/lib/live";
 import type { AgentInfo, QueueItemInfo } from "@/lib/types";
-
-const POLL_MS = 3000;
 
 export function QueuePage() {
   const { t } = useTranslation();
   const [items, setItems] = useState<QueueItemInfo[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [tick, setTick] = useState(0); // re-renders wait durations between polls
+  const [tick, setTick] = useState(0); // re-renders wait durations as time passes
   void tick;
 
   const refresh = useCallback(async () => {
-    setRefreshing(true);
     try {
       const [queue, agentList] = await Promise.all([api.queue(), api.agents()]);
       setItems(queue);
@@ -27,20 +23,45 @@ export function QueuePage() {
     } catch {
       // keep the previous list
     } finally {
-      setRefreshing(false);
       setLoading(false);
+    }
+  }, []);
+
+  // Queue movement arrives as a payload-less signal — each client re-fetches
+  // /api/queue, which filters the list by its own visibility.
+  const fetchQueue = useCallback(async () => {
+    try {
+      setItems(await api.queue());
+    } catch {
+      // keep the previous list
     }
   }, []);
 
   useEffect(() => {
     void refresh();
-    const poll = setInterval(() => void refresh(), POLL_MS);
-    const durationTick = setInterval(() => setTick((v) => v + 1), 1000);
-    return () => {
-      clearInterval(poll);
-      clearInterval(durationTick);
-    };
   }, [refresh]);
+
+  // Live queue movement; agents stats drive the "why is it waiting" column.
+  useHubGroup(
+    (connection) => connection.invoke("SubscribeQueue"),
+    (connection) => connection.invoke("UnsubscribeQueue"),
+  );
+  useHubGroup(
+    (connection) => connection.invoke("SubscribeAgents"),
+    (connection) => connection.invoke("UnsubscribeAgents"),
+  );
+  useHubEvent("queueUpdated", () => void fetchQueue());
+  useHubEvent("agentsUpdated", (snapshot: AgentInfo[]) => setAgents(snapshot));
+  useReconnected(() => {
+    // Events missed while offline are gone — replay fresh snapshots.
+    void refresh();
+  });
+
+  // Re-render once a second so the waited-duration column ticks up.
+  useEffect(() => {
+    const durationTick = setInterval(() => setTick((v) => v + 1), 1000);
+    return () => clearInterval(durationTick);
+  }, []);
 
   const onlineLabels = new Set(agents.filter((a) => a.online).flatMap((a) => a.labels));
   const anyAgentOnline = agents.some((a) => a.online);
@@ -58,19 +79,9 @@ export function QueuePage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">{t("queue.title")}</h1>
-          <p className="mt-0.5 text-xs text-fg-muted">{t("queue.hint")}</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          className="flex items-center gap-1.5 rounded-md border border-line bg-canvas px-3 py-1.5 text-sm hover:bg-hover"
-        >
-          <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-          {t("common.refresh")}
-        </button>
+      <div>
+        <h1 className="text-xl font-semibold">{t("queue.title")}</h1>
+        <p className="mt-0.5 text-xs text-fg-muted">{t("queue.hint")}</p>
       </div>
 
       {loading ? (

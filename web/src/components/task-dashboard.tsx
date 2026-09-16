@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Play, RefreshCw, Star } from "lucide-react";
-import type { HubConnection } from "@microsoft/signalr";
+import { Play, Star } from "lucide-react";
 
 import { StatusIcon } from "@/components/status-icon";
 import { useTriggerWithParams } from "@/components/trigger-dialog";
 import { api } from "@/lib/api";
 import { formatDuration, statusLabel } from "@/lib/format";
-import { getCiHub } from "@/lib/signalr";
+import { useHubEvent, useHubGroup, useReconnected } from "@/lib/live";
 import { useTranslation } from "react-i18next";
-import type { DashboardItem, Run } from "@/lib/types";
+import type { DashboardItem, JobRun, Run } from "@/lib/types";
 
 /** Status → row background tint + left accent bar (Blue Ocean style). CSS
 ///  variables so rows follow the active light/dark theme. */
@@ -34,14 +33,12 @@ export function TaskDashboard() {
   const navigate = useNavigate();
   const [items, setItems] = useState<DashboardItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
 
   const [paramDefs, setParamDefs] = useState<Record<string, import("@/lib/types").WorkflowParam[]>>({});
 
   const refresh = useCallback(async () => {
-    setRefreshing(true);
     try {
       setItems(await api.dashboard());
       const jobs = await api.jobs();
@@ -49,7 +46,6 @@ export function TaskDashboard() {
     } catch (e) {
       setMessage(e instanceof Error ? e.message : String(e));
     } finally {
-      setRefreshing(false);
       setLoading(false);
     }
   }, []);
@@ -69,34 +65,21 @@ export function TaskDashboard() {
   }, [stale, refresh]);
 
   // Live updates: keep each row's lastRun in sync with dashboard events.
-  useEffect(() => {
-    let cancelled = false;
-    let connection: HubConnection | null = null;
-
-    (async () => {
-      try {
-        connection = await getCiHub();
-        if (cancelled) return;
-
-        connection.on("runUpdated", (run: Run) => {
-          setItems((prev) => prev.map((item) => (item.name === run.workflowName ? { ...item, lastRun: run } : item)));
-        });
-        // Job-level updates can't change the run's own status — but they hint
-        // the run is progressing; refresh its row from the server cheaply.
-        connection.on("jobUpdated", () => setStale(true));
-        await connection.invoke("SubscribeDashboard", 0, 30);
-      } catch {
-        // manual refresh still works
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      connection?.off("runUpdated");
-      connection?.off("jobUpdated");
-      connection?.invoke("UnsubscribeDashboard").catch(() => {});
-    };
-  }, []);
+  // The dashboard group is where runUpdated/jobUpdated are broadcast.
+  useHubGroup(
+    (connection) => connection.invoke("SubscribeDashboard", 0, 30),
+    (connection) => connection.invoke("UnsubscribeDashboard"),
+  );
+  useHubEvent("runUpdated", (run: Run) => {
+    setItems((prev) => prev.map((item) => (item.name === run.workflowName ? { ...item, lastRun: run } : item)));
+  });
+  // Job-level updates can't change the run's own status — but they hint
+  // the run is progressing; refresh its row from the server cheaply.
+  useHubEvent("jobUpdated", (_jobRun: JobRun) => setStale(true));
+  useReconnected(() => {
+    // Events missed while offline are gone — replay a fresh snapshot.
+    void refresh();
+  });
 
   const toggleFavorite = async (name: string) => {
     try {
@@ -131,14 +114,6 @@ export function TaskDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">{t("dashboard.title")}</h1>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          className="flex items-center gap-1.5 rounded-md border border-line bg-canvas px-3 py-1.5 text-sm hover:bg-hover"
-        >
-          <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-          {t("common.refresh")}
-        </button>
       </div>
 
       {message && (

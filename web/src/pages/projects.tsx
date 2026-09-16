@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/me-context";
+import { useHubEvent, useHubGroup, useReconnected } from "@/lib/live";
 import type { ProjectInfo, WorkflowInfo } from "@/lib/types";
 
 export function ProjectsPage() {
@@ -33,6 +34,15 @@ export function ProjectsPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // Project changes from any session refresh this page live.
+  useHubGroup(
+    (connection) => connection.invoke("SubscribeProjects"),
+    (connection) => connection.invoke("UnsubscribeProjects"),
+  );
+  useHubEvent("projectsChanged", () => void reload());
+  useHubEvent("workflowChanged", () => void reload());
+  useReconnected(() => void reload());
 
   const create = async () => {
     try {
