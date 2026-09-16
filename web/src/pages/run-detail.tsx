@@ -399,7 +399,7 @@ function JobConsole({ job, workflow, runNumber, lines }: { job: JobRun; workflow
 
   return (
     <div className="space-y-3">
-      <JobHeader job={job} workflow={workflow} runNumber={runNumber} />
+      <JobHeader job={job} />
 
       {job.steps.map((step, index) => (
         <StepSection
@@ -409,6 +409,9 @@ function JobConsole({ job, workflow, runNumber, lines }: { job: JobRun; workflow
           lines={byStep.get(index) ?? []}
           collapsed={collapsed[index] ?? false}
           onToggle={() => toggleCollapse(index)}
+          workflow={workflow}
+          runNumber={runNumber}
+          jobKey={job.jobKey}
         />
       ))}
     </div>
@@ -421,30 +424,39 @@ function StepSection({
   lines,
   collapsed,
   onToggle,
+  workflow,
+  runNumber,
+  jobKey,
 }: {
   index: number;
   step: import("@/lib/types").JobStep;
   lines: LogLine[];
   collapsed: boolean;
   onToggle: () => void;
+  workflow: string;
+  runNumber: number;
+  jobKey: string;
 }) {
   const { t } = useTranslation();
 
   return (
     <div className="overflow-hidden rounded-md border border-line bg-canvas">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-canvas-subtle"
-      >
-        {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-        <StatusIcon status={step.status} size={14} />
-        <span className="font-medium">{step.name}</span>
-        {step.exitCode !== null && step.exitCode !== 0 && (
-          <span className="text-xs text-danger">exit {step.exitCode}</span>
-        )}
-        <span className="ml-auto text-xs text-fg-muted">{formatDuration(step.startedAt, step.finishedAt)}</span>
-      </button>
+      <div className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-canvas-subtle">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+          <StatusIcon status={step.status} size={14} />
+          <span className="truncate font-medium">{step.name}</span>
+          {step.exitCode !== null && step.exitCode !== 0 && (
+            <span className="text-xs text-danger">exit {step.exitCode}</span>
+          )}
+        </button>
+        <span className="ml-auto shrink-0 text-xs text-fg-muted">{formatDuration(step.startedAt, step.finishedAt)}</span>
+        <StepDownloadMenu workflow={workflow} runNumber={runNumber} jobKey={jobKey} stepIndex={index} />
+      </div>
       {!collapsed && (
         <div className="bg-[#0d1117] p-3">
           {lines.length === 0 ? (
@@ -452,6 +464,50 @@ function StepSection({
           ) : (
             <XtermConsole lines={lines} />
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Per-step log download: raw or timestamped, filtered by step index server-side. */
+function StepDownloadMenu({
+  workflow,
+  runNumber,
+  jobKey,
+  stepIndex,
+}: {
+  workflow: string;
+  runNumber: number;
+  jobKey: string;
+  stepIndex: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const { t } = useTranslation();
+  const url = (format: "raw" | "timestamped") => api.runLogDownloadUrl(workflow, runNumber, jobKey, format, stepIndex);
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        title={t("runDetail.downloadLog")}
+        className="flex items-center gap-1 rounded-md border border-line px-1.5 py-1 text-xs text-fg-muted hover:bg-hover"
+      >
+        <Download size={12} />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 w-44 overflow-hidden rounded-md border border-line bg-canvas shadow-lg">
+          <a href={url("raw")} className="block px-3 py-2 text-xs hover:bg-canvas-subtle" onClick={() => setOpen(false)}>
+            {t("runDetail.rawLog")}
+          </a>
+          <a
+            href={url("timestamped")}
+            className="block px-3 py-2 text-xs hover:bg-canvas-subtle"
+            onClick={() => setOpen(false)}
+          >
+            {t("runDetail.timestampedLog")}
+          </a>
         </div>
       )}
     </div>
@@ -504,45 +560,13 @@ function StatusGlyph({ status, compact = false }: { status: string; compact?: bo
   }
 }
 
-function JobHeader({ job, workflow, runNumber }: { job: JobRun; workflow: string; runNumber: number }) {
-  const [open, setOpen] = useState(false);
-  const { t } = useTranslation();
-  const base = api.runLogDownloadUrl(workflow, runNumber, job.jobKey, "raw").replace("?format=raw", "");
-
+function JobHeader({ job }: { job: JobRun }) {
   return (
-    <div className="relative flex items-center gap-2 rounded-md border border-line bg-canvas px-3 py-2.5">
+    <div className="flex items-center gap-2 rounded-md border border-line bg-canvas px-3 py-2.5">
       <StatusIcon status={job.status} size={18} />
       <span className="text-sm font-semibold">{job.jobKey}</span>
       {job.agentId && <span className="rounded bg-link-subtle px-1.5 py-0.5 text-xs text-link">agent</span>}
       <span className="ml-auto text-xs text-fg-muted">{formatDuration(job.startedAt, job.finishedAt)}</span>
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => setOpen((prev) => !prev)}
-          className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs hover:bg-hover"
-        >
-          <Download size={12} />
-          {t("runDetail.downloadLog")}
-        </button>
-        {open && (
-          <div className="absolute right-0 z-10 mt-1 w-44 overflow-hidden rounded-md border border-line bg-canvas shadow-lg">
-            <a
-              href={`${base}?format=raw`}
-              className="block px-3 py-2 text-xs hover:bg-canvas-subtle"
-              onClick={() => setOpen(false)}
-            >
-              {t("runDetail.rawLog")}
-            </a>
-            <a
-              href={`${base}?format=timestamped`}
-              className="block px-3 py-2 text-xs hover:bg-canvas-subtle"
-              onClick={() => setOpen(false)}
-            >
-              {t("runDetail.timestampedLog")}
-            </a>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

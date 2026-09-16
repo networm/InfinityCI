@@ -108,6 +108,13 @@ public class ParamsAndDownloadsTests : IDisposable
         var firstLine = stampedText.ReplaceLineEndings().Split('\n').First();
         // yyyy-MM-dd HH:mm:ss.fff prefix
         Assert.Matches(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}  ", firstLine);
+
+        // Optional step filter: keeps matching lines, drops others, marks the filename.
+        var stepRaw = await _admin.GetAsync($"/api/runs/{runId}/logs/a/download?format=raw&step=0");
+        Assert.Contains("value=g-t", await stepRaw.Content.ReadAsStringAsync());
+        Assert.Contains("step0", stepRaw.Content.Headers.ContentDisposition!.FileName);
+        var stepMissing = await _admin.GetAsync($"/api/runs/{runId}/logs/a/download?format=raw&step=9");
+        Assert.Equal("", (await stepMissing.Content.ReadAsStringAsync()).Trim());
     }
 
     [Fact]

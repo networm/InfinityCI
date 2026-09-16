@@ -498,18 +498,21 @@ public static class CiApi
             return Results.Ok(new LogPage(run.Id, jobKey, next, lines));
         }).RequireAuthorization();
 
-        app.MapGet("/api/jobs/{name}/runs/{runNumber:int}/logs/{jobKey}/download", async (string name, int runNumber, string jobKey, string? format, JobLogStore logs, RunRepository repo, WorkflowStore store, CiDbContext db, ClaimsPrincipal user, HttpContext http) =>
+        app.MapGet("/api/jobs/{name}/runs/{runNumber:int}/logs/{jobKey}/download", async (string name, int runNumber, string jobKey, string? format, int? step, JobLogStore logs, RunRepository repo, WorkflowStore store, CiDbContext db, ClaimsPrincipal user, HttpContext http) =>
         {
             if (!await CanSeeWorkflowAsync(store, db, user, name)) return Results.NotFound();
             var run = await repo.GetRunAsync(name, runNumber);
             if (run is null) return Results.NotFound();
             var lines = await logs.ReadAfterAsync(run.Id, run.WorkflowName, run.RunNumber, jobKey, 0);
+            if (step is not null)
+                lines = lines.Where(l => l.StepIndex == step.Value).ToList();
             var timestamped = string.Equals(format, "timestamped", StringComparison.OrdinalIgnoreCase);
             var content = string.Join("\n", lines.Select(l => timestamped
                 ? $"{DateTimeOffset.Parse(l.TimestampUtc).ToLocalTime():yyyy-MM-dd HH:mm:ss.fff}  {l.Text}"
                 : l.Text)) + "\n";
             var suffix = timestamped ? ".timestamped" : "";
-            var fileName = $"{name}-{runNumber}-{jobKey}{suffix}.log";
+            var stepSuffix = step is not null ? $"-step{step.Value}" : "";
+            var fileName = $"{name}-{runNumber}-{jobKey}{stepSuffix}{suffix}.log";
             http.Response.Headers.ContentDisposition = $"attachment; filename=\"{fileName}\"";
             return Results.Text(content, "text/plain; charset=utf-8", System.Text.Encoding.UTF8);
         }).RequireAuthorization();
@@ -573,17 +576,20 @@ public static class CiApi
             return Results.Ok(new LogPage(id, jobKey, next, lines));
         }).RequireAuthorization();
 
-        app.MapGet("/api/runs/{id:long}/logs/{jobKey}/download", async (long id, string jobKey, string? format, JobLogStore logs, RunRepository repo, CiDbContext db, ClaimsPrincipal user, HttpContext http) =>
+        app.MapGet("/api/runs/{id:long}/logs/{jobKey}/download", async (long id, string jobKey, string? format, int? step, JobLogStore logs, RunRepository repo, CiDbContext db, ClaimsPrincipal user, HttpContext http) =>
         {
             var run = await repo.GetRunAsync(id);
             if (run is null || !await CanSeeProjectAsync(db, user, run.Project)) return Results.NotFound();
             var lines = await logs.ReadAfterAsync(run.Id, run.WorkflowName, run.RunNumber, jobKey, 0);
+            if (step is not null)
+                lines = lines.Where(l => l.StepIndex == step.Value).ToList();
             var timestamped = string.Equals(format, "timestamped", StringComparison.OrdinalIgnoreCase);
             var content = string.Join("\n", lines.Select(l => timestamped
                 ? $"{DateTimeOffset.Parse(l.TimestampUtc).ToLocalTime():yyyy-MM-dd HH:mm:ss.fff}  {l.Text}"
                 : l.Text)) + "\n";
             var suffix = timestamped ? ".timestamped" : "";
-            var fileName = $"{run.WorkflowName}-{id}-{jobKey}{suffix}.log";
+            var stepSuffix = step is not null ? $"-step{step.Value}" : "";
+            var fileName = $"{run.WorkflowName}-{id}-{jobKey}{stepSuffix}{suffix}.log";
             http.Response.Headers.ContentDisposition = $"attachment; filename=\"{fileName}\"";
             return Results.Text(content, "text/plain; charset=utf-8", System.Text.Encoding.UTF8);
         }).RequireAuthorization();

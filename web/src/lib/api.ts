@@ -72,8 +72,8 @@ export const api = {
       { method: "POST" },
     ),
   retryRun: (id: number) => request<Run>(`/api/runs/${id}/retry`, { method: "POST" }),
-  runLogDownloadUrl: (workflow: string, runNumber: number, jobKey: string, format: "raw" | "timestamped") =>
-    `/api/jobs/${encodeURIComponent(workflow)}/runs/${runNumber}/logs/${encodeURIComponent(jobKey)}/download?format=${format}`,
+  runLogDownloadUrl: (workflow: string, runNumber: number, jobKey: string, format: "raw" | "timestamped", step?: number) =>
+    `/api/jobs/${encodeURIComponent(workflow)}/runs/${runNumber}/logs/${encodeURIComponent(jobKey)}/download?format=${format}${step !== undefined ? `&step=${step}` : ""}`,
   runLogs: (workflow: string, runNumber: number, jobKey: string, afterLine: number) =>
     request<{ runId: number; jobKey: string; nextLine: number; lines: LogLine[] }>(
       `/api/jobs/${encodeURIComponent(workflow)}/runs/${runNumber}/logs/${encodeURIComponent(jobKey)}?afterLine=${afterLine}`,
