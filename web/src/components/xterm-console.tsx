@@ -99,7 +99,14 @@ export function XtermConsole({ lines }: { lines: LogLine[] }) {
 
   useEffect(() => {
     const term = termRef.current;
-    if (!term || lines.length === writtenCount.current) return;
+    if (!term) return;
+    // The parent normally only appends; a shorter array means the source was
+    // swapped — clear the screen and replay instead of appending onto stale text.
+    if (lines.length < writtenCount.current) {
+      term.reset();
+      writtenCount.current = 0;
+    }
+    if (lines.length === writtenCount.current) return;
     const payload = lines.slice(writtenCount.current).map(formatLine).join("");
     writtenCount.current = lines.length;
     term.write(payload, () => {

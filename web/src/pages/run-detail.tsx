@@ -249,7 +249,13 @@ export function BuildDetailPage() {
         {/* Selected job: per-step consoles */}
         <section className="min-w-0 flex-1">
           {currentJob ? (
-            <JobConsole job={currentJob} workflow={workflow} runNumber={runNumber} lines={logs[currentJob.jobKey] ?? []} />
+            <JobConsole
+              key={currentJob.jobKey}
+              job={currentJob}
+              workflow={workflow}
+              runNumber={runNumber}
+              lines={logs[currentJob.jobKey] ?? []}
+            />
           ) : (
             <div className="rounded-md border border-line bg-canvas p-6 text-sm text-fg-muted">{t("runDetail.selectJobHint")}</div>
           )}
