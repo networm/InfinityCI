@@ -162,10 +162,30 @@ export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?:
     document.addEventListener("mousedown", outsideMouseDown);
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "c") return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return; // copying from a real input — let the browser handle it
+      }
       const selection = selectionSource();
       if (!selection) return;
-      void navigator.clipboard?.writeText(selection).catch(() => {});
       event.preventDefault();
+      // A synchronous execCommand copy works from any keydown gesture without
+      // clipboard permissions; the async API is only a fallback.
+      const scratch = document.createElement("textarea");
+      scratch.value = selection;
+      scratch.setAttribute("readonly", "");
+      scratch.style.position = "fixed";
+      scratch.style.opacity = "0";
+      document.body.appendChild(scratch);
+      scratch.select();
+      let copied = false;
+      try {
+        copied = document.execCommand("copy");
+      } catch {
+        copied = false;
+      }
+      scratch.remove();
+      if (!copied) void navigator.clipboard?.writeText(selection).catch(() => {});
     };
     document.addEventListener("keydown", onKeyDown, true);
     const onCopyEvent = (event: ClipboardEvent) => {
