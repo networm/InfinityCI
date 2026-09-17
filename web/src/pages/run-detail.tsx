@@ -92,7 +92,6 @@ export function BuildDetailPage() {
     for (const [jobKey, lines] of Object.entries(snapshot.logs)) {
       for (const line of lines) applyLine(jobKey, line);
     }
-    setSelectedJob((current) => current ?? snapshot.jobRuns[0]?.jobKey ?? null);
   }, [applyJob, applyLine, applyRun]);
 
   // Join the run's group; the subscription snapshot bootstraps the page.
@@ -127,7 +126,8 @@ export function BuildDetailPage() {
     () => jobs.filter((j) => j.jobKey.toLowerCase().includes(jobFilter.toLowerCase())),
     [jobs, jobFilter],
   );
-  const currentJob = jobs.find((j) => j.jobKey === selectedJob) ?? filteredJobs[0] ?? null;
+  // No auto-selection: the reader picks a job in the sidebar or the DAG.
+  const currentJob = selectedJob === null ? null : jobs.find((j) => j.jobKey === selectedJob) ?? null;
   const isRunOpen = run?.status === "Running" || run?.status === "Queued";
 
   return (
