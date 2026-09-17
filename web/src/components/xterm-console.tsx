@@ -146,17 +146,41 @@ export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?:
     host.addEventListener("focusin", stealFocusBack, true);
 
     // Ctrl+C / Edit>Copy for an xterm selection — the terminal never holds
-    // focus, so the browser copy event fires on the body.
-    const onCopy = (event: ClipboardEvent) => {
-      if (window.getSelection()?.toString()) return; // a real DOM selection wins
-      if (!term.hasSelection()) return;
-      event.clipboardData?.setData("text/plain", term.getSelection());
+    // focus and its selection is not a DOM selection, so the browser copy
+    // event carries nothing; intercept the keystroke at document level and
+    // write the clipboard directly. The latest selection is tracked because
+    // xterm may clear its internal state when focus moves away.
+    let lastSelection = "";
+    const selectionListener = term.onSelectionChange(() => {
+      lastSelection = term.getSelection();
+    });
+    const selectionSource = () =>
+      term.hasSelection() ? term.getSelection() : lastSelection;
+    const outsideMouseDown = (event: MouseEvent) => {
+      if (!host.contains(event.target as Node)) lastSelection = "";
+    };
+    document.addEventListener("mousedown", outsideMouseDown);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "c") return;
+      const selection = selectionSource();
+      if (!selection) return;
+      void navigator.clipboard?.writeText(selection).catch(() => {});
       event.preventDefault();
     };
-    document.addEventListener("copy", onCopy);
+    document.addEventListener("keydown", onKeyDown, true);
+    const onCopyEvent = (event: ClipboardEvent) => {
+      const selection = selectionSource();
+      if (!selection) return;
+      event.clipboardData?.setData("text/plain", selection);
+      event.preventDefault();
+    };
+    document.addEventListener("copy", onCopyEvent);
 
     return () => {
-      document.removeEventListener("copy", onCopy);
+      selectionListener.dispose();
+      document.removeEventListener("mousedown", outsideMouseDown);
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("copy", onCopyEvent);
       host.removeEventListener("mousedown", preventFocus);
       host.removeEventListener("focusin", stealFocusBack, true);
       host.removeEventListener("wheel", blockWheel, { capture: true });
