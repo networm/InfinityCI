@@ -31,13 +31,39 @@ public sealed class RemoteBuildRunner(
             var job = workflow.Jobs.GetValueOrDefault(assignment.JobKey)
                 ?? throw new InvalidOperationException($"Job '{assignment.JobKey}' not in workflow '{workflow.Name}'.");
             var jobKey = assignment.JobKey;
-            var workspace = Path.Combine(options.WorkspacesDir, $"{assignment.RunId}-{Sanitize(jobKey)}");
-            Directory.CreateDirectory(workspace);
+
+            // Working-directory override from the workflow's runtime state:
+            // absolute paths are used as-is, relative ones resolve under the
+            // agent's data directory. Empty = per-run isolated workspace.
+            string workspace;
+            if (string.IsNullOrWhiteSpace(assignment.Workspace))
+            {
+                workspace = Path.Combine(options.WorkspacesDir, $"{assignment.RunId}-{Sanitize(jobKey)}");
+            }
+            else
+            {
+                workspace = Path.IsPathRooted(assignment.Workspace)
+                    ? assignment.Workspace
+                    : Path.GetFullPath(Path.Combine(options.DataDir, assignment.Workspace));
+            }
+
+            try
+            {
+                Directory.CreateDirectory(workspace);
+            }
+            catch (Exception ex)
+            {
+                await SendLog(assignment.RunId, jobRunId, jobKey, 0, 0,
+                    $"[agent {Environment.MachineName}] workspace '{workspace}' is not usable: {ex.Message}");
+                throw;
+            }
 
             var intro = $"[agent {Environment.MachineName}] job '{jobKey}' of run {assignment.RunId} started.";
             await SendLog(assignment.RunId, jobRunId, jobKey, 0, 0, intro);
-
             var cursor = new LineCursor(1); // line 0 = intro
+            if (!string.IsNullOrWhiteSpace(assignment.Workspace))
+                await SendLog(assignment.RunId, jobRunId, jobKey, 0, cursor.Take(),
+                    $"[agent {Environment.MachineName}] working directory override: {workspace}");
 
             // SCM checkout: mirror the master-side executor behavior.
             if (assignment.ScmUrl is { Length: > 0 } scmUrl)

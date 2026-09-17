@@ -20,6 +20,7 @@ public sealed class RemoteBuildCoordinator(
     AgentRegistry registry,
     RunAggregator aggregator,
     Auth.CredentialStore credentialStore,
+    Jobs.WorkflowControlService workflowControl,
     ILogger<RemoteBuildCoordinator> logger)
 {
     public Task PublishAgentsChangedAsync() => registry.PublishChangedAsync();
@@ -100,6 +101,9 @@ public sealed class RemoteBuildCoordinator(
 
             // Resolve SCM + credentials master-side so agents never see the
             // credential store, only the resolved values for this assignment.
+            // The runtime-state working-directory override rides along so the
+            // agent runs in the same fixed directory the workflow configured.
+            var workspaceOverride = await workflowControl.GetWorkspaceDirAsync(run.WorkflowName);
             InfinityCI.Grpc.JobAssignment assignment;
             if (workflow.Scm is { } scm)
             {
@@ -118,6 +122,7 @@ public sealed class RemoteBuildCoordinator(
                     ScmPassword = credential?.Password ?? "",
                     ParamsJson = System.Text.Json.JsonSerializer.Serialize(runParams),
                     EnvJson = agentEnvJson,
+                    Workspace = workspaceOverride ?? "",
                 };
             }
             else
@@ -131,6 +136,7 @@ public sealed class RemoteBuildCoordinator(
                     WorkflowYaml = rawYaml,
                     ParamsJson = System.Text.Json.JsonSerializer.Serialize(runParams),
                     EnvJson = agentEnvJson,
+                    Workspace = workspaceOverride ?? "",
                 };
             }
             var sent = await registry.TrySendAsync(agent.Id, new MasterToAgent { Assignment = assignment });
