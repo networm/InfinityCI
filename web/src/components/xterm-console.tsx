@@ -151,8 +151,26 @@ export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?:
     // write the clipboard directly. The latest selection is tracked because
     // xterm may clear its internal state when focus moves away.
     let lastSelection = "";
+    let mirror: HTMLPreElement | null = null;
     const selectionListener = term.onSelectionChange(() => {
-      lastSelection = term.getSelection();
+      const selection = term.getSelection();
+      lastSelection = selection;
+      // Mirror the xterm selection into a real DOM selection: canvas-rendered
+      // text is invisible to the browser's copy command and to selection-aware
+      // extensions (which hijack Ctrl+C when they see "no selection").
+      if (selection) {
+        const mirrorEl = mirror ??= document.createElement("pre");
+        mirrorEl.style.cssText = "position:fixed;left:-99999px;top:0;margin:0;white-space:pre;";
+        mirrorEl.textContent = selection;
+        document.body.appendChild(mirrorEl);
+        const range = document.createRange();
+        range.selectNodeContents(mirrorEl);
+        const domSelection = window.getSelection();
+        domSelection?.removeAllRanges();
+        domSelection?.addRange(range);
+      } else if (mirror && window.getSelection()?.anchorNode === mirror) {
+        window.getSelection()?.removeAllRanges();
+      }
     });
     const selectionSource = () =>
       term.hasSelection() ? term.getSelection() : lastSelection;
@@ -166,6 +184,9 @@ export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?:
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
         return; // copying from a real input — let the browser handle it
       }
+      // The mirrored DOM selection (if any) is handled by the browser default:
+      // it copies exactly the selected log text and stays extension-friendly.
+      if (window.getSelection()?.toString()) return;
       const selection = selectionSource();
       if (!selection) return;
       event.preventDefault();
@@ -204,6 +225,8 @@ export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?:
       host.removeEventListener("mousedown", preventFocus);
       host.removeEventListener("focusin", stealFocusBack, true);
       host.removeEventListener("wheel", blockWheel, { capture: true });
+      mirror?.remove();
+      mirror = null;
       window.clearTimeout(measureTimer);
       observer.disconnect();
       term.dispose();
