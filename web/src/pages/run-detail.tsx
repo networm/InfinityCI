@@ -8,11 +8,12 @@ import { StatusIcon } from "@/components/status-icon";
 import { XtermConsole } from "@/components/xterm-console";
 import { api } from "@/lib/api";
 import { layoutDag } from "@/lib/dag";
+import type { DagLayout } from "@/lib/dag";
 import { formatDuration } from "@/lib/format";
 import { useResolveUserName } from "@/lib/user-names";
 import { getCiHub } from "@/lib/signalr";
 import { useHubEvent, useHubGroup, useReconnected } from "@/lib/live";
-import type { JobRun, LogLine, Run, RunStatus, RunSubscription } from "@/lib/types";
+import type { JobRun, LogLine, Run, RunSubscription } from "@/lib/types";
 
 type LogsByJob = Record<string, LogLine[]>;
 
@@ -30,7 +31,7 @@ export function BuildDetailPage() {
   const [logs, setLogs] = useState<LogsByJob>({});
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [jobFilter, setJobFilter] = useState("");
-  const [jobsCollapsed, setJobsCollapsed] = useState(false);
+  const [jobsCollapsed, setJobsCollapsed] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -122,10 +123,23 @@ export function BuildDetailPage() {
       .catch(() => {});
   });
 
-  const filteredJobs = useMemo(
-    () => jobs.filter((j) => j.jobKey.toLowerCase().includes(jobFilter.toLowerCase())),
-    [jobs, jobFilter],
-  );
+  // One layout computation drives both the DAG view and the sidebar order, so
+  // the job list reads in the same flow order as the diagram above it.
+  const dagLayout = useMemo(() => layoutDag(jobs, run?.status ?? null), [jobs, run?.status]);
+  const orderedJobs = useMemo(() => {
+    const order = new Map<string, number>();
+    dagLayout.nodes
+      .filter((node) => node.kind === "job" && node.jobKey)
+      .sort((a, b) => a.cx - b.cx || a.cy - b.cy)
+      .forEach((node, index) => order.set(node.jobKey!, index));
+    return [...jobs].sort(
+      (a, b) => (order.get(a.jobKey) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.jobKey) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }, [jobs, dagLayout]);
+
+  const filteredJobs = useMemo(() => {
+    return orderedJobs.filter((j) => j.jobKey.toLowerCase().includes(jobFilter.toLowerCase()));
+  }, [orderedJobs, jobFilter]);
   // No auto-selection: the reader picks a job in the sidebar or the DAG.
   const currentJob = selectedJob === null ? null : jobs.find((j) => j.jobKey === selectedJob) ?? null;
   const isRunOpen = run?.status === "Running" || run?.status === "Queued";
@@ -209,15 +223,25 @@ export function BuildDetailPage() {
       )}
 
       {/* Job dependency DAG (GitHub style) — always rendered, needs or not */}
-      <DagView
-        jobs={jobs}
-        runStatus={run?.status ?? null}
-        selected={currentJob?.jobKey ?? null}
-        onSelect={(jobKey) => setSelectedJob(jobKey)}
-      />
+      <DagView layout={dagLayout} selected={currentJob?.jobKey ?? null} onSelect={(jobKey) => setSelectedJob(jobKey)} />
 
       <div className="flex gap-4">
-        {/* Parallel jobs sidebar — collapsible to give the log more room */}
+        {/* Selected job: per-step consoles */}
+        <section className="min-w-0 flex-1">
+          {currentJob ? (
+            <JobConsole
+              key={currentJob.jobKey}
+              job={currentJob}
+              workflow={workflow}
+              runNumber={runNumber}
+              lines={logs[currentJob.jobKey] ?? []}
+            />
+          ) : (
+            <div className="rounded-md border border-line bg-canvas p-6 text-sm text-fg-muted">{t("runDetail.selectJobHint")}</div>
+          )}
+        </section>
+
+        {/* Parallel jobs sidebar (right side) — collapsible to give the log more room */}
         <aside className={jobsCollapsed ? "flex w-10 shrink-0 flex-col items-center" : "w-60 shrink-0"}>
           {jobsCollapsed ? (
             <button
@@ -226,7 +250,7 @@ export function BuildDetailPage() {
               title={t("runDetail.expandJobs")}
               className="rounded-md border border-line p-1.5 text-fg-muted hover:bg-hover"
             >
-              <ChevronRight size={14} />
+              <ChevronLeft size={14} />
             </button>
           ) : (
             <>
@@ -243,7 +267,7 @@ export function BuildDetailPage() {
                   title={t("runDetail.collapseJobs")}
                   className="shrink-0 rounded-md border border-line p-1.5 text-fg-muted hover:bg-hover"
                 >
-                  <ChevronLeft size={14} />
+                  <ChevronRight size={14} />
                 </button>
               </div>
               <div className="w-full overflow-hidden rounded-md border border-line bg-canvas">
@@ -269,21 +293,6 @@ export function BuildDetailPage() {
             </>
           )}
         </aside>
-
-        {/* Selected job: per-step consoles */}
-        <section className="min-w-0 flex-1">
-          {currentJob ? (
-            <JobConsole
-              key={currentJob.jobKey}
-              job={currentJob}
-              workflow={workflow}
-              runNumber={runNumber}
-              lines={logs[currentJob.jobKey] ?? []}
-            />
-          ) : (
-            <div className="rounded-md border border-line bg-canvas p-6 text-sm text-fg-muted">{t("runDetail.selectJobHint")}</div>
-          )}
-        </section>
       </div>
     </div>
   );
@@ -300,18 +309,15 @@ const DAG_STATUS_STROKE: Record<string, string> = {
 };
 
 function DagView({
-  jobs,
-  runStatus,
+  layout,
   selected,
   onSelect,
 }: {
-  jobs: JobRun[];
-  runStatus: RunStatus | null;
+  layout: DagLayout;
   selected: string | null;
   onSelect: (jobKey: string) => void;
 }) {
   const { t } = useTranslation();
-  const layout = useMemo(() => layoutDag(jobs, runStatus), [jobs, runStatus]);
 
   return (
     <div className="flex justify-center overflow-x-auto rounded-md border border-line bg-canvas p-4">

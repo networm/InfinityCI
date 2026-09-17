@@ -199,7 +199,7 @@ const en = {
     expandJobs: "Expand job list",
     local: "Local",
     noMatchingJobs: "No matching jobs",
-    selectJobHint: "Select a job on the left to view its log.",
+    selectJobHint: "Click a job in the diagram above to view its log, or expand the job list on the right.",
     dagAria: "Job dependency graph",
     dagStart: "Start",
     dagEnd: "End",

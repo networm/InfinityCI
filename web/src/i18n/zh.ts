@@ -199,7 +199,7 @@ const zh = {
     expandJobs: "展开任务列表",
     local: "本地",
     noMatchingJobs: "无匹配任务",
-    selectJobHint: "选择左侧任务查看日志。",
+    selectJobHint: "点击上方任务图中的任务查看日志；也可展开右侧任务列表选择。",
     dagAria: "任务依赖图",
     dagStart: "开始",
     dagEnd: "结束",
