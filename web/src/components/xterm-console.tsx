@@ -23,6 +23,11 @@ import type { LogLine } from "@/lib/types";
 const LINE_HEIGHT_PX = 12 * 1.6;
 const MAX_LINES = 1000;
 const MIN_LINES = 3;
+// Fractional cell heights / font rounding can leave the xterm grid a row or
+// two short of the buffer, which shows an internal scrollbar. Oversizing the
+// host by this factor guarantees the grid always covers the buffer; the extra
+// rows are invisible against the console background.
+const HEIGHT_SAFETY = 1.03;
 
 function pageNearBottom(margin = 80): boolean {
   return window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - margin;
@@ -54,6 +59,11 @@ const THEME: ITheme = {
   brightMagenta: "#f778ba",
   brightCyan: "#76e3ea",
   brightWhite: "#ffffff",
+  // xterm 6 paints a VS Code-style scrollbar inside the terminal; scrolling is
+  // page-level here, so the slider is transparent (the supported way to hide it).
+  scrollbarSliderBackground: "transparent",
+  scrollbarSliderHoverBackground: "transparent",
+  scrollbarSliderActiveBackground: "transparent",
 };
 
 export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?: boolean }) {
@@ -102,9 +112,9 @@ export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?:
     // buffer exactly — a stale estimate makes the buffer outgrow the grid and
     // an internal scrollbar appears inside the terminal.
     const measureRowHeight = () => {
-      const row = host.querySelector<HTMLElement>(".xterm-rows > div");
+      const row = host.querySelector<HTMLElement>(".xterm-rows div");
       const height = row ? row.getBoundingClientRect().height : 0;
-      if (height > 0) setRowHeight(height);
+      if (height > 0) setRowHeight((prev) => (Math.abs(prev - height) > 0.01 ? height : prev));
     };
     measureRowHeight();
 
@@ -113,8 +123,11 @@ export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?:
       measureRowHeight();
     });
     observer.observe(host);
+    // Row divs may only be laid out after the first paint.
+    const measureTimer = window.setTimeout(measureRowHeight, 60);
 
     return () => {
+      window.clearTimeout(measureTimer);
       observer.disconnect();
       term.dispose();
       termRef.current = null;
@@ -138,13 +151,20 @@ export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?:
     writtenCount.current = lines.length;
     term.write(payload, () => {
       if (follow) scrollPageToBottom();
+      // Safety net: if the buffer still outgrows the grid (font/rounding
+      // drift), grow the measured row height until the internal overflow —
+      // the only thing that shows xterm's scrollbar — is gone.
+      const viewport = hostRef.current?.querySelector<HTMLElement>(".xterm-viewport");
+      if (viewport && viewport.scrollHeight - viewport.clientHeight > 2) {
+        setRowHeight((prev) => prev * 1.05);
+      }
     });
   }, [lines]);
 
   // Fully expanded: one row per log line so the page scrolls through the log.
   const rows = Math.min(Math.max(lines.length, MIN_LINES), MAX_LINES);
 
-  return <div ref={hostRef} style={{ height: rows * rowHeight + 2 }} />;
+  return <div ref={hostRef} style={{ height: Math.ceil(rows * rowHeight * HEIGHT_SAFETY) + 2 }} />;
 }
 
 /** Dim timestamp prefix, then the raw text (ANSI escape codes included). */

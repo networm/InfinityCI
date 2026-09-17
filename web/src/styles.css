@@ -168,3 +168,9 @@ body {
   width: 0 !important;
   height: 0 !important;
 }
+/* xterm 6 also paints a VS Code-style scrollbar (.xterm-scrollable-element
+   .scrollbar/.slider) — hide it too; scrolling is page-level. */
+.xterm .xterm-scrollable-element .scrollbar,
+.xterm .xterm-scrollable-element .slider {
+  visibility: hidden !important;
+}
