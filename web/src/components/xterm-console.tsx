@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import type { ITheme } from "@xterm/xterm";
@@ -18,7 +18,8 @@ import type { LogLine } from "@/lib/types";
  * view pinned to the end of the log.
  */
 
-// Row height mirrors the fontSize/lineHeight options below.
+// Fallback row height; the real value is measured from the rendered rows —
+// it depends on font metrics, not just fontSize × lineHeight.
 const LINE_HEIGHT_PX = 12 * 1.6;
 const MAX_LINES = 1000;
 const MIN_LINES = 3;
@@ -61,6 +62,7 @@ export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?:
   const writtenCount = useRef(0);
   const liveRef = useRef(live);
   liveRef.current = live;
+  const [rowHeight, setRowHeight] = useState(LINE_HEIGHT_PX);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -96,7 +98,20 @@ export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?:
     termRef.current = term;
     writtenCount.current = 0;
 
-    const observer = new ResizeObserver(() => fit.fit());
+    // Measure the real rendered row height so the host height matches the
+    // buffer exactly — a stale estimate makes the buffer outgrow the grid and
+    // an internal scrollbar appears inside the terminal.
+    const measureRowHeight = () => {
+      const row = host.querySelector<HTMLElement>(".xterm-rows > div");
+      const height = row ? row.getBoundingClientRect().height : 0;
+      if (height > 0) setRowHeight(height);
+    };
+    measureRowHeight();
+
+    const observer = new ResizeObserver(() => {
+      fit.fit();
+      measureRowHeight();
+    });
     observer.observe(host);
 
     return () => {
@@ -129,7 +144,7 @@ export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?:
   // Fully expanded: one row per log line so the page scrolls through the log.
   const rows = Math.min(Math.max(lines.length, MIN_LINES), MAX_LINES);
 
-  return <div ref={hostRef} style={{ height: rows * LINE_HEIGHT_PX + 2 }} />;
+  return <div ref={hostRef} style={{ height: rows * rowHeight + 2 }} />;
 }
 
 /** Dim timestamp prefix, then the raw text (ANSI escape codes included). */
