@@ -205,14 +205,22 @@ app.UseRequestLocalization(new RequestLocalizationOptions
 });
 
 // Serve the built SPA when present (production/published layout uses wwwroot).
+// index.html must always revalidate (hashed /static assets are immutable), or
+// browsers heuristically cache a stale entry page and miss new deployments.
 var ciOptions = app.Services.GetRequiredService<CiServerOptions>();
 var distDir = Path.GetFullPath(Path.Combine(app.Environment.ContentRootPath, ciOptions.WebDistDir));
 if (Directory.Exists(distDir))
 {
     var fileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(distDir);
+    var cacheHeaders = (Microsoft.AspNetCore.StaticFiles.StaticFileResponseContext ctx) =>
+    {
+        ctx.Context.Response.Headers.CacheControl = ctx.Context.Request.Path.StartsWithSegments("/static")
+            ? "public, max-age=31536000, immutable"
+            : "no-cache";
+    };
     app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = fileProvider });
-    app.UseStaticFiles(new StaticFileOptions { FileProvider = fileProvider });
-    app.MapFallbackToFile("index.html", new StaticFileOptions { FileProvider = fileProvider });
+    app.UseStaticFiles(new StaticFileOptions { FileProvider = fileProvider, OnPrepareResponse = cacheHeaders });
+    app.MapFallbackToFile("index.html", new StaticFileOptions { FileProvider = fileProvider, OnPrepareResponse = cacheHeaders });
 }
 
 app.UseAuthentication();
