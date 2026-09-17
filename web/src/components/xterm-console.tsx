@@ -133,9 +133,34 @@ export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?:
     const blockWheel = (event: WheelEvent) => event.stopPropagation();
     host.addEventListener("wheel", blockWheel, { capture: true, passive: true });
 
+    // Keep keyboard focus on the page: if the click-focus reaches xterm's
+    // hidden textarea, Home/End/PageUp/PageDown/Ctrl+F stop working. Selection
+    // still works (xterm tracks the drag itself), and Ctrl+C for a terminal
+    // selection is served by the document-level copy listener below.
+    const preventFocus = (event: MouseEvent) => event.preventDefault();
+    host.addEventListener("mousedown", preventFocus);
+    const stealFocusBack = (event: FocusEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.classList.contains("xterm-helper-textarea")) target.blur();
+    };
+    host.addEventListener("focusin", stealFocusBack, true);
+
+    // Ctrl+C / Edit>Copy for an xterm selection — the terminal never holds
+    // focus, so the browser copy event fires on the body.
+    const onCopy = (event: ClipboardEvent) => {
+      if (window.getSelection()?.toString()) return; // a real DOM selection wins
+      if (!term.hasSelection()) return;
+      event.clipboardData?.setData("text/plain", term.getSelection());
+      event.preventDefault();
+    };
+    document.addEventListener("copy", onCopy);
+
     return () => {
-      window.clearTimeout(measureTimer);
+      document.removeEventListener("copy", onCopy);
+      host.removeEventListener("mousedown", preventFocus);
+      host.removeEventListener("focusin", stealFocusBack, true);
       host.removeEventListener("wheel", blockWheel, { capture: true });
+      window.clearTimeout(measureTimer);
       observer.disconnect();
       term.dispose();
       termRef.current = null;
