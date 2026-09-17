@@ -1,0 +1,26 @@
+# Infinity CI server: web UI on 5000, agent gRPC on 5001 (HTTP/2 h2c).
+# All state lives in the infinityci-data volume (/app/data) — backups are a
+# simple volume copy.
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: infinityci-server:latest
+    container_name: infinityci-server
+    restart: unless-stopped
+    ports:
+      - "5000:5000"   # web UI + REST (change the left side to remap)
+      - "5001:5001"   # agent gRPC
+    environment:
+      TZ: Asia/Shanghai                      # cron schedules run in this zone
+      # Public URL used in notification/commit-status links:
+      InfinityCI__PublicOrigin: http://localhost:5000
+      # Optional: SMTP for the email notification channel
+      # InfinityCI__Smtp__Host: smtp.example.com
+      # InfinityCI__Smtp__From: ci@example.com
+    volumes:
+      - infinityci-data:/app/data
+
+volumes:
+  infinityci-data:

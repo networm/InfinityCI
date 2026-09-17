@@ -31,10 +31,17 @@ CultureInfo.DefaultThreadCurrentUICulture = new CultureInfo("zh");
 // agent gRPC service gets a dedicated HTTP/2 (h2c) port while the web app keeps
 // HTTP/1.1 for browsers on the main port. Note: any explicit Listen* call makes
 // Kestrel ignore applicationUrl/UseUrls, so both endpoints are declared here.
+// The bind address defaults to loopback for local runs; containers set
+// InfinityCI__ListenHost=0.0.0.0 to accept external traffic.
+// The bind address defaults to loopback for local runs; containers set
+// InfinityCI__ListenHost=0.0.0.0 to accept external traffic.
+var listenHost = builder.Configuration["InfinityCI:ListenHost"] ?? "127.0.0.1";
+if (!System.Net.IPAddress.TryParse(listenHost, out var listenAddress))
+    listenAddress = System.Net.IPAddress.Loopback;
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.ListenLocalhost(5000);
-    options.ListenLocalhost(5001, listen => listen.Protocols = HttpProtocols.Http2);
+    options.Listen(listenAddress, 5000);
+    options.Listen(listenAddress, 5001, listen => listen.Protocols = HttpProtocols.Http2);
 });
 
 builder.Host.UseSerilog((context, configuration) =>

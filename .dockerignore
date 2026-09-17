@@ -1,0 +1,22 @@
+# Build context hygiene: keep the image build to source only.
+bin/
+obj/
+publish/
+data/
+dist/
+node_modules/
+web/dist/
+web/node_modules/
+
+.git/
+.github/
+.zcode/
+.vs/
+.vscode/
+
+scripts/
+tests/
+*.md
+Dockerfile
+.dockerignore
+docker-compose.yml

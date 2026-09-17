@@ -17,6 +17,10 @@ public sealed class CiServerOptions
     /// (commit-status target_url, notifications); null = links are omitted.</summary>
     public string? PublicOrigin { get; set; }
 
+    /// <summary>Address Kestrel binds the web (5000) and gRPC (5001) ports to.
+    /// Default loopback for local runs; containers/remote deployments set 0.0.0.0.</summary>
+    public string ListenHost { get; set; } = "127.0.0.1";
+
     public string JobsDir => Path.Combine(DataDir, "jobs");
     public string LogsDir => Path.Combine(DataDir, "logs");
     public string WorkspacesDir => Path.Combine(DataDir, "workspaces");
