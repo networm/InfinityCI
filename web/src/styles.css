@@ -155,3 +155,13 @@ body {
   background-color: var(--canvas);
   color: var(--fg);
 }
+
+/* Console logs scroll with the page (logs are fully expanded), so xterm's
+   internal scrollbar is never wanted — hide both the track and the thumb. */
+.xterm .xterm-viewport {
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.xterm .xterm-viewport::-webkit-scrollbar {
+  display: none;
+}
