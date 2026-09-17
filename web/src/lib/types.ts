@@ -39,6 +39,7 @@ export interface WorkflowRuntimeState {
   webhookToken: string | null;
   notifyWebhookUrl: string | null;
   webhookEvents: string | null;
+  workspaceDir: string | null;
 }
 
 /** One outbound notification channel: wecom | dingtalk | slack | webhook | email. */

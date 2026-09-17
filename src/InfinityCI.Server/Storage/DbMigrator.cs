@@ -17,7 +17,7 @@ public static class DbMigrator
 {
     /// <summary>Schema version of the model before RunNumber was introduced.</summary>
     public const int BaselineVersion = 5;
-    public const int LatestVersion = 8;
+    public const int LatestVersion = 9;
 
     private sealed record MigrationStep(int FromVersion, int ToVersion, string Name, Action<CiDbContext> Apply);
 
@@ -76,6 +76,10 @@ public static class DbMigrator
                 }
                 db.SaveChanges();
             }
+        }),
+        new(8, 9, "add WorkflowStates.WorkspaceDir (local working-directory override)", db =>
+        {
+            AddColumnIfMissing(db, "WorkflowStates", "WorkspaceDir", "TEXT");
         }),
     ];
 

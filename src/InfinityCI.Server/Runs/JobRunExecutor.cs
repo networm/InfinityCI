@@ -23,7 +23,7 @@ public sealed class JobRunExecutor(
 {
     private readonly CiServerOptions _options = optionsAccessor.Value;
 
-    public async Task<JobRunStatus> ExecuteAsync(JobRun jobRun, WorkflowJob job, ScmConfig? workflowScm, string workflow, int runNumber, IReadOnlyDictionary<string, string> runParams, string? sourceBranchOverride, TriggerContext? triggerContext, CancellationToken stoppingToken)
+    public async Task<JobRunStatus> ExecuteAsync(JobRun jobRun, WorkflowJob job, ScmConfig? workflowScm, string workflow, int runNumber, IReadOnlyDictionary<string, string> runParams, string? sourceBranchOverride, TriggerContext? triggerContext, string? workspaceOverride, CancellationToken stoppingToken)
     {
         using var scope = scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<RunRepository>();
@@ -34,7 +34,34 @@ public sealed class JobRunExecutor(
         await repo.SaveJobRunTransitionAsync(jobRun);
         await events.PublishJobRunUpdatedAsync(jobRun);
 
-        var workspace = Path.Combine(_options.DataDir, WorkflowStore.Sanitize(workflow), "workspaces", $"{runNumber}-{JobLogStore.SanitizeJobKey(jobRun.JobKey)}");
+        // Workflow-configured working directory (runtime state): absolute paths are
+        // used as-is, relative ones resolve under the data directory. Directory
+        // creation failures fail the job instead of crashing the worker loop.
+        string workspace;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(workspaceOverride))
+            {
+                workspace = Path.Combine(_options.DataDir, WorkflowStore.Sanitize(workflow), "workspaces", $"{runNumber}-{JobLogStore.SanitizeJobKey(jobRun.JobKey)}");
+            }
+            else
+            {
+                workspace = Path.IsPathRooted(workspaceOverride)
+                    ? workspaceOverride
+                    : Path.Combine(_options.DataDir, workspaceOverride);
+                workspace = Path.GetFullPath(workspace);
+                Directory.CreateDirectory(workspace);
+                await Append(jobRun, workflow, runNumber, 0, $"[server] working directory override: {workspace}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await Append(jobRun, workflow, runNumber, 0, $"[server] workspace override '{workspaceOverride}' is not usable: {ex.Message}");
+            jobRun.Status = JobRunStatus.Failed;
+            jobRun.FinishedAt = DateTimeOffset.UtcNow;
+            await PersistAsync(repo, jobRun, CancellationToken.None);
+            return JobRunStatus.Failed;
+        }
         Directory.CreateDirectory(workspace);
 
         // SCM checkout: steps run inside the working copy when the workflow

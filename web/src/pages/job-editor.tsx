@@ -149,6 +149,8 @@ export function JobEditorPage() {
   const [loading, setLoading] = useState(isEdit || Boolean(copyFrom));
   const [saving, setSaving] = useState(false);
   const [projectOptions, setProjectOptions] = useState<string[]>(["Default"]);
+  // Runtime-state working directory override (not part of the workflow YAML).
+  const [workspaceDir, setWorkspaceDir] = useState("");
 
   useEffect(() => {
     api
@@ -156,6 +158,14 @@ export function JobEditorPage() {
       .then((projects) => setProjectOptions(projects.map((p) => p.name)))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!isAdmin || !isEdit || !editName) return;
+    api
+      .workflowState(editName)
+      .then((state) => setWorkspaceDir(state.workspaceDir ?? ""))
+      .catch(() => {});
+  }, [isAdmin, isEdit, editName]);
 
   useEffect(() => {
     const source = isEdit ? editName : copyFrom;
@@ -198,7 +208,14 @@ export function JobEditorPage() {
       if (isEdit && editName) {
         await api.updateJob(editName, text);
       } else {
-        await api.createJob(text);
+        const created = await api.createJob(text);
+        // A freshly created workflow exists server-side; apply the directory now.
+        if (isAdmin && workspaceDir.trim()) {
+          await api.setWorkspaceDir(created.name, workspaceDir.trim());
+        }
+      }
+      if (isEdit && editName && isAdmin) {
+        await api.setWorkspaceDir(editName, workspaceDir.trim() || null);
       }
       navigate({ to: "/jobs" });
     } catch (e) {
@@ -285,6 +302,18 @@ export function JobEditorPage() {
                 ))}
               </select>
             </label>
+            {isAdmin && (
+              <label className="text-sm sm:col-span-2">
+                <span className="mb-1 block font-medium">{t("editor.workspace")}</span>
+                <input
+                  value={workspaceDir}
+                  onChange={(e) => setWorkspaceDir(e.target.value)}
+                  placeholder={t("editor.workspacePlaceholder")}
+                  className="w-full rounded-md border border-line px-2.5 py-1.5 font-mono text-sm outline-none focus:border-link"
+                />
+                <span className="mt-1 block text-xs text-fg-muted">{t("editor.workspaceHint")}</span>
+              </label>
+            )}
           </div>
 
           <div className="rounded-md border border-line bg-canvas p-4">

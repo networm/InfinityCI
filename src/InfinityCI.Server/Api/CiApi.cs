@@ -35,6 +35,7 @@ public record AgentConfigRequest(int MaxConcurrentBuilds, string[]? Labels, Dict
 public record FavoriteRequest(bool Favorite);
 public record EnabledToggleRequest(bool Enabled);
 public record NotifyChannelsRequest(List<NotifyChannel>? Channels);
+public record WorkspaceRequest(string? WorkspaceDir);
 public record WebhookTriggerRequest(Dictionary<string, string>? Params);
 public record EnabledRequest(bool Enabled);
 public record WebhookConfigRequest(string? Secret, string? Branches, string? Events);
@@ -406,6 +407,14 @@ public static class CiApi
 
         app.MapGet("/api/jobs/{name}/notify-channels", async (string name, WorkflowControlService control) =>
             Results.Ok(new { channels = await control.GetNotifyChannelsAsync(name) })).RequireAuthorization("Admins");
+
+        app.MapPut("/api/jobs/{name}/workspace", async (string name, WorkspaceRequest request, WorkflowControlService control, WorkflowStore store) =>
+        {
+            if (store.TryGet(name) is null) return Results.NotFound();
+            await control.SetWorkspaceDirAsync(name, request.WorkspaceDir);
+            var state = await control.GetAsync(name);
+            return Results.Ok(new { name, workspaceDir = state.WorkspaceDir });
+        }).RequireAuthorization("Admins");
 
         app.MapPut("/api/jobs/{name}/notify-channels", async (string name, NotifyChannelsRequest request, WorkflowControlService control, WorkflowStore store) =>
         {

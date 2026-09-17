@@ -293,7 +293,10 @@ public sealed class RunQueueService(
             _active[jobRun.Id] = cts;
             try
             {
-                await _executor.ExecuteAsync(jobRun, job, workflowScm, workflowName, runNumber, runParams, sourceBranch, triggerContext, cts.Token);
+                // Runtime-state working-directory override (local jobs only — agent
+                // jobs never reach this executor).
+                var workspaceOverride = await workflowControl.GetWorkspaceDirAsync(workflowName, stoppingToken);
+                await _executor.ExecuteAsync(jobRun, job, workflowScm, workflowName, runNumber, runParams, sourceBranch, triggerContext, workspaceOverride, cts.Token);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InfinityCI.Server.Jobs;
 
-public sealed record WorkflowRuntimeState(string WorkflowName, bool Enabled, string? WebhookToken, string? NotifyWebhookUrl, bool HasWebhookSecret, string? WebhookBranches, string? WebhookEvents);
+public sealed record WorkflowRuntimeState(string WorkflowName, bool Enabled, string? WebhookToken, string? NotifyWebhookUrl, bool HasWebhookSecret, string? WebhookBranches, string? WebhookEvents, string? WorkspaceDir);
 
 /// <summary>
 /// Runtime toggles per workflow (enabled, incoming-webhook token, WeCom notify
@@ -24,9 +24,10 @@ public class WorkflowControlService(IServiceScopeFactory scopeFactory, WorkflowS
         var record = await db.WorkflowStates.AsNoTracking()
             .FirstOrDefaultAsync(w => w.WorkflowName == workflowName, ct);
         if (record is null)
-            return new WorkflowRuntimeState(workflowName, Enabled: true, WebhookToken: null, NotifyWebhookUrl: null, HasWebhookSecret: false, WebhookBranches: null, WebhookEvents: null);
+            return new WorkflowRuntimeState(workflowName, Enabled: true, WebhookToken: null, NotifyWebhookUrl: null, HasWebhookSecret: false, WebhookBranches: null, WebhookEvents: null, WorkspaceDir: null);
         return new WorkflowRuntimeState(record.WorkflowName, record.Enabled, record.WebhookToken, record.NotifyWebhookUrl,
-            HasWebhookSecret: !string.IsNullOrEmpty(record.WebhookSecret), WebhookBranches: record.WebhookBranches, WebhookEvents: record.WebhookEvents);
+            HasWebhookSecret: !string.IsNullOrEmpty(record.WebhookSecret), WebhookBranches: record.WebhookBranches, WebhookEvents: record.WebhookEvents,
+            WorkspaceDir: record.WorkspaceDir);
     }
 
     /// <summary>Workflow must be enabled for triggering.</summary>
@@ -110,6 +111,24 @@ public class WorkflowControlService(IServiceScopeFactory scopeFactory, WorkflowS
             .Where(w => w.WorkflowName == workflowName)
             .Select(w => w.WebhookEvents)
             .FirstOrDefaultAsync(ct);
+    }
+
+    /// <summary>Working-directory override for locally executed jobs; null = default
+    /// per-run isolated workspaces. Kept as runtime state, outside the workflow YAML.</summary>
+    public async Task<string?> GetWorkspaceDirAsync(string workflowName, CancellationToken ct = default)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CiDbContext>();
+        return await db.WorkflowStates.AsNoTracking()
+            .Where(w => w.WorkflowName == workflowName)
+            .Select(w => w.WorkspaceDir)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    /// <summary>Sets or clears (null/empty) the working-directory override.</summary>
+    public async Task SetWorkspaceDirAsync(string workflowName, string? workspaceDir)
+    {
+        await UpsertAsync(workflowName, state => state.WorkspaceDir = string.IsNullOrWhiteSpace(workspaceDir) ? null : workspaceDir.Trim());
     }
 
     /// <summary>All notification channels configured for one workflow. Falls back to

@@ -70,6 +70,11 @@ public sealed class WorkflowState
     /// <summary>JSON list of notification channels ({type, target, events}); supersedes <see cref="NotifyWebhookUrl"/>.</summary>
     public string? NotifyChannelsJson { get; set; }
 
+    /// <summary>Working-directory override for locally executed jobs (absolute, or relative
+    /// to the data directory); null = default per-run isolated workspaces. Kept as runtime
+    /// state, deliberately outside the workflow YAML.</summary>
+    public string? WorkspaceDir { get; set; }
+
     public DateTimeOffset UpdatedUtc { get; set; }
 }
 

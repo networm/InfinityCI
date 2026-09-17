@@ -122,6 +122,11 @@ export const api = {
     ),
   notifyChannels: (name: string) =>
     request<{ channels: NotifyChannel[] }>(`/api/jobs/${encodeURIComponent(name)}/notify-channels`),
+  setWorkspaceDir: (name: string, workspaceDir: string | null) =>
+    request<{ name: string; workspaceDir: string | null }>(`/api/jobs/${encodeURIComponent(name)}/workspace`, {
+      method: "PUT",
+      body: JSON.stringify({ workspaceDir }),
+    }),
   setNotifyChannels: (name: string, channels: NotifyChannel[]) =>
     request<{ name: string; channels: NotifyChannel[] }>(`/api/jobs/${encodeURIComponent(name)}/notify-channels`, {
       method: "PUT",
