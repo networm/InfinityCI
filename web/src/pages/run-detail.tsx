@@ -462,7 +462,7 @@ function StepSection({
           {lines.length === 0 ? (
             <div className="text-xs text-[#7d8590]">{t("runDetail.noOutput")}</div>
           ) : (
-            <XtermConsole lines={lines} />
+            <XtermConsole lines={lines} live={step.status === "Running"} />
           )}
         </div>
       )}

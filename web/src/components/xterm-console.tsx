@@ -10,19 +10,30 @@ import type { LogLine } from "@/lib/types";
 /**
  * Terminal-style console for one build step: feeds log lines into an xterm.js
  * instance, which renders embedded ANSI SGR sequences (colors, bold, ...).
- * The parent owns dedup/history; this component only writes lines that arrived
- * since its last flush (the initial backfill arrives as one batch).
+ *
+ * GitHub-Actions-raw-log style: the terminal is fully expanded (one row per
+ * line, capped at the last MAX_LINES lines — xterm's scrollback trims older
+ * output), so scrolling happens on the page instead of inside the console.
+ * While the reader stays at the page bottom, newly appended lines keep the
+ * view pinned to the end of the log.
  */
 
-// Row height mirrors the fontSize/lineHeight options below. The window grows
-// by one row per log line up to MAX_LINES; xterm's scrollback keeps only the
-// last MAX_LINES lines (older output is trimmed automatically).
+// Row height mirrors the fontSize/lineHeight options below.
 const LINE_HEIGHT_PX = 12 * 1.6;
 const MAX_LINES = 1000;
 const MIN_LINES = 3;
 
+function pageNearBottom(margin = 80): boolean {
+  return window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - margin;
+}
+
+function scrollPageToBottom(): void {
+  window.scrollTo({ top: document.documentElement.scrollHeight });
+}
+
 // GitHub-dark-friendly palette matching the console background (#0d1117).
-const THEME: ITheme = {  background: "#0d1117",
+const THEME: ITheme = {
+  background: "#0d1117",
   foreground: "#c9d1d9",
   cursor: "#0d1117",
   selectionBackground: "#264f78",
@@ -44,11 +55,12 @@ const THEME: ITheme = {  background: "#0d1117",
   brightWhite: "#ffffff",
 };
 
-export function XtermConsole({ lines }: { lines: LogLine[] }) {
+export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?: boolean }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const writtenCount = useRef(0);
-  const stickToBottom = useRef(true);
+  const liveRef = useRef(live);
+  liveRef.current = live;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -83,24 +95,12 @@ export function XtermConsole({ lines }: { lines: LogLine[] }) {
     fit.fit();
     termRef.current = term;
     writtenCount.current = 0;
-    stickToBottom.current = true;
 
-    const observer = new ResizeObserver(() => {
-      fit.fit();
-      if (stickToBottom.current) term.scrollToBottom();
-    });
+    const observer = new ResizeObserver(() => fit.fit());
     observer.observe(host);
-
-    const viewport = host.querySelector<HTMLElement>(".xterm-viewport");
-    const onViewportScroll = () => {
-      if (!viewport) return;
-      stickToBottom.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 40;
-    };
-    viewport?.addEventListener("scroll", onViewportScroll);
 
     return () => {
       observer.disconnect();
-      viewport?.removeEventListener("scroll", onViewportScroll);
       term.dispose();
       termRef.current = null;
     };
@@ -116,18 +116,20 @@ export function XtermConsole({ lines }: { lines: LogLine[] }) {
       writtenCount.current = 0;
     }
     if (lines.length === writtenCount.current) return;
+    // Opening a live step jumps to the log tail; afterwards the view only
+    // follows while the reader stays at the page bottom.
+    const follow = (writtenCount.current === 0 && liveRef.current) || pageNearBottom();
     const payload = lines.slice(writtenCount.current).map(formatLine).join("");
     writtenCount.current = lines.length;
     term.write(payload, () => {
-      if (stickToBottom.current) term.scrollToBottom();
+      if (follow) scrollPageToBottom();
     });
   }, [lines]);
 
-  // One row per log line — the window grows as output arrives; the CSS
-  // max-height keeps the page usable once the terminal reaches its cap.
+  // Fully expanded: one row per log line so the page scrolls through the log.
   const rows = Math.min(Math.max(lines.length, MIN_LINES), MAX_LINES);
 
-  return <div ref={hostRef} style={{ height: rows * LINE_HEIGHT_PX + 2, maxHeight: "80vh" }} />;
+  return <div ref={hostRef} style={{ height: rows * LINE_HEIGHT_PX + 2 }} />;
 }
 
 /** Dim timestamp prefix, then the raw text (ANSI escape codes included). */
