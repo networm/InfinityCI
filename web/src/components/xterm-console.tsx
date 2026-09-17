@@ -14,9 +14,15 @@ import type { LogLine } from "@/lib/types";
  * since its last flush (the initial backfill arrives as one batch).
  */
 
+// Row height mirrors the fontSize/lineHeight options below. The window grows
+// by one row per log line up to MAX_LINES; xterm's scrollback keeps only the
+// last MAX_LINES lines (older output is trimmed automatically).
+const LINE_HEIGHT_PX = 12 * 1.6;
+const MAX_LINES = 1000;
+const MIN_LINES = 3;
+
 // GitHub-dark-friendly palette matching the console background (#0d1117).
-const THEME: ITheme = {
-  background: "#0d1117",
+const THEME: ITheme = {  background: "#0d1117",
   foreground: "#c9d1d9",
   cursor: "#0d1117",
   selectionBackground: "#264f78",
@@ -57,7 +63,7 @@ export function XtermConsole({ lines }: { lines: LogLine[] }) {
         "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
       fontSize: 12,
       lineHeight: 1.6,
-      scrollback: 5000,
+      scrollback: MAX_LINES,
       theme: THEME,
     });
     const fit = new FitAddon();
@@ -79,7 +85,10 @@ export function XtermConsole({ lines }: { lines: LogLine[] }) {
     writtenCount.current = 0;
     stickToBottom.current = true;
 
-    const observer = new ResizeObserver(() => fit.fit());
+    const observer = new ResizeObserver(() => {
+      fit.fit();
+      if (stickToBottom.current) term.scrollToBottom();
+    });
     observer.observe(host);
 
     const viewport = host.querySelector<HTMLElement>(".xterm-viewport");
@@ -114,7 +123,11 @@ export function XtermConsole({ lines }: { lines: LogLine[] }) {
     });
   }, [lines]);
 
-  return <div ref={hostRef} className="h-[22rem]" />;
+  // One row per log line — the window grows as output arrives; the CSS
+  // max-height keeps the page usable once the terminal reaches its cap.
+  const rows = Math.min(Math.max(lines.length, MIN_LINES), MAX_LINES);
+
+  return <div ref={hostRef} style={{ height: rows * LINE_HEIGHT_PX + 2, maxHeight: "80vh" }} />;
 }
 
 /** Dim timestamp prefix, then the raw text (ANSI escape codes included). */
