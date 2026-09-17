@@ -126,8 +126,16 @@ export function XtermConsole({ lines, live = false }: { lines: LogLine[]; live?:
     // Row divs may only be laid out after the first paint.
     const measureTimer = window.setTimeout(measureRowHeight, 60);
 
+    // The log is fully expanded and scrolls with the page. Left unhandled,
+    // xterm consumes wheel events to scroll its own (hidden) internal buffer;
+    // stopping propagation in the capture phase keeps them for the browser,
+    // whose default action scrolls the page instead.
+    const blockWheel = (event: WheelEvent) => event.stopPropagation();
+    host.addEventListener("wheel", blockWheel, { capture: true, passive: true });
+
     return () => {
       window.clearTimeout(measureTimer);
+      host.removeEventListener("wheel", blockWheel, { capture: true });
       observer.disconnect();
       term.dispose();
       termRef.current = null;
