@@ -157,11 +157,14 @@ body {
 }
 
 /* Console logs scroll with the page (logs are fully expanded), so xterm's
-   internal scrollbar is never wanted — hide both the track and the thumb. */
+   internal scrollbar is never wanted — hide both the track and the thumb.
+   !important guards against bundle order vs xterm's own stylesheet. */
 .xterm .xterm-viewport {
-  overflow-y: hidden;
-  scrollbar-width: none;
+  overflow-y: hidden !important;
+  scrollbar-width: none !important;
 }
 .xterm .xterm-viewport::-webkit-scrollbar {
-  display: none;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
