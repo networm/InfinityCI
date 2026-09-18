@@ -41,9 +41,22 @@ public sealed class LdapOptions
     /// <summary>Wrap the whole session in SSL (LDAPS); Port should be 636.</summary>
     public bool UseSsl { get; set; }
 
+    /// <summary>Upgrade the connection with StartTLS on the plain port; ignored
+    /// when <see cref="UseSsl"/> is set.</summary>
+    public bool StartTls { get; set; }
+
     /// <summary>
     /// Skip server certificate validation for LDAPS. Only for self-signed
     /// internal directories; prefer installing the CA certificate instead.
     /// </summary>
     public bool AcceptAnyCertificate { get; set; }
+
+    /// <summary>
+    /// Group DN whose members are provisioned/synced as Admin on login; empty
+    /// disables the mapping. Never grants SuperAdmin.
+    /// </summary>
+    public string AdminGroupDn { get; set; } = "";
+
+    /// <summary>Project name first-time LDAP users are made visible to; empty = no projects.</summary>
+    public string DefaultProject { get; set; } = "";
 }

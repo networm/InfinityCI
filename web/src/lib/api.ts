@@ -7,6 +7,8 @@ import type {
   DashboardItem,
   EnrolledAgent,
   LogLine,
+  LdapConfig,
+  LdapTestStep,
   NotifyChannel,
   QueueItemInfo,
   WorkflowRuntimeState,
@@ -122,6 +124,17 @@ export const api = {
     ),
   notifyChannels: (name: string) =>
     request<{ channels: NotifyChannel[] }>(`/api/jobs/${encodeURIComponent(name)}/notify-channels`),
+  ldapConfig: () => request<LdapConfig>("/api/ldap/config"),
+  saveLdapConfig: (config: Partial<LdapConfig> & { bindPassword?: string | null }) =>
+    request<{ source: string; hasBindPassword: boolean }>("/api/ldap/config", {
+      method: "PUT",
+      body: JSON.stringify(config),
+    }),
+  testLdapConnection: (config: Partial<LdapConfig> & { bindPassword?: string | null }) =>
+    request<{ ok: boolean; steps: LdapTestStep[] }>("/api/ldap/test", {
+      method: "POST",
+      body: JSON.stringify(config),
+    }),
   setWorkspaceDir: (name: string, workspaceDir: string | null) =>
     request<{ name: string; workspaceDir: string | null }>(`/api/jobs/${encodeURIComponent(name)}/workspace`, {
       method: "PUT",

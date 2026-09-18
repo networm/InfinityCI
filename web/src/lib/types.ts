@@ -42,6 +42,31 @@ export interface WorkflowRuntimeState {
   workspaceDir: string | null;
 }
 
+/** Global LDAP directory configuration (admin page). bindPassword is
+ * write-only: never returned by the server. */
+export interface LdapConfig {
+  enabled: boolean;
+  server: string;
+  port: number;
+  baseDn: string;
+  bindDn: string;
+  userSearchFilter: string;
+  displayNameAttribute: string;
+  useSsl: boolean;
+  startTls: boolean;
+  acceptAnyCertificate: boolean;
+  adminGroupDn: string;
+  defaultProject: string;
+  hasBindPassword: boolean;
+  source: "db" | "appsettings";
+}
+
+export interface LdapTestStep {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
 /** One outbound notification channel: wecom | dingtalk | slack | webhook | email. */
 export interface NotifyChannel {
   type: string;

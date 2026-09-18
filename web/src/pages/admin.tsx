@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/me-context";
 import { useHubEvent, useHubGroup, useReconnected } from "@/lib/live";
-import type { ProjectInfo, UserInfo, UserRole } from "@/lib/types";
+import type { LdapConfig, LdapTestStep, ProjectInfo, UserInfo, UserRole } from "@/lib/types";
 
 export function AdminPage() {
   const { t } = useTranslation();
@@ -17,7 +17,245 @@ export function AdminPage() {
       <h1 className="text-xl font-semibold">{t("admin.title")}</h1>
       <ProjectsSection />
       {isSuperAdmin && <UsersSection />}
+      <LdapSection />
     </div>
+  );
+}
+
+const EMPTY_LDAP: Partial<LdapConfig> & { bindPassword: string } = {
+  enabled: false,
+  server: "",
+  port: 389,
+  baseDn: "",
+  bindDn: "",
+  bindPassword: "",
+  userSearchFilter: "(uid={0})",
+  displayNameAttribute: "displayName",
+  useSsl: false,
+  startTls: false,
+  acceptAnyCertificate: false,
+  adminGroupDn: "",
+  defaultProject: "",
+};
+
+/** LDAP directory authentication settings: stored in the database, effective
+/// immediately; SuperAdmin can edit and test, Admin can view. */
+function LdapSection() {
+  const { t } = useTranslation();
+  const { me } = useMe();
+  const isSuperAdmin = me?.role === "SuperAdmin";
+  const [config, setConfig] = useState<LdapConfig | null>(null);
+  const [form, setForm] = useState(EMPTY_LDAP);
+  const [testSteps, setTestSteps] = useState<LdapTestStep[] | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const reload = useCallback(async () => {
+    try {
+      const loaded = await api.ldapConfig();
+      setConfig(loaded);
+      setForm({ ...loaded, bindPassword: "" });
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const update = (patch: Partial<typeof form>) => setForm((prev) => ({ ...prev, ...patch }));
+
+  const save = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const { bindPassword, ...configFields } = form;
+      await api.saveLdapConfig({ ...configFields, bindPassword: bindPassword || null });
+      await reload();
+      setMessage(t("admin.ldapSaved"));
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const test = async () => {
+    setBusy(true);
+    setTestSteps(null);
+    setMessage(null);
+    try {
+      const { bindPassword, ...configFields } = form;
+      const result = await api.testLdapConnection({ ...configFields, bindPassword: bindPassword || null });
+      setTestSteps(result.steps);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const field = (label: string, input: React.ReactNode) => (
+    <label className="text-sm">
+      <span className="mb-1 block text-xs font-medium text-fg-muted">{label}</span>
+      {input}
+    </label>
+  );
+
+  const inputClass =
+    "w-full rounded-md border border-line px-2.5 py-1.5 text-sm outline-none focus:border-link";
+
+  return (
+    <section>
+      <h2 className="mb-2 text-sm font-medium text-fg-muted">{t("admin.ldapTitle")}</h2>
+      {message && <div className="mb-3 rounded-md border border-danger-line bg-danger-subtle px-3 py-2 text-sm text-danger">{message}</div>}
+      <div className="rounded-md border border-line bg-canvas p-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(e) => update({ enabled: e.target.checked })}
+            />
+            {t("admin.ldapEnabled")}
+          </label>
+          {field(t("admin.ldapServer"), (
+            <input
+              value={form.server}
+              onChange={(e) => update({ server: e.target.value })}
+              placeholder="ldap.corp"
+              className={inputClass}
+            />
+          ))}
+          {field(t("admin.ldapPort"), (
+            <input
+              type="number"
+              value={form.port}
+              onChange={(e) => update({ port: Number(e.target.value) || 389 })}
+              className={inputClass}
+            />
+          ))}
+          {field(t("admin.ldapBaseDn"), (
+            <input
+              value={form.baseDn}
+              onChange={(e) => update({ baseDn: e.target.value })}
+              placeholder="dc=example,dc=org"
+              className={inputClass}
+            />
+          ))}
+          {field(t("admin.ldapBindDn"), (
+            <input
+              value={form.bindDn}
+              onChange={(e) => update({ bindDn: e.target.value })}
+              placeholder="cn=svc,dc=example,dc=org"
+              className={inputClass}
+            />
+          ))}
+          {field(t("admin.ldapBindPassword"), (
+            <input
+              type="password"
+              value={form.bindPassword}
+              onChange={(e) => update({ bindPassword: e.target.value })}
+              placeholder={config?.hasBindPassword ? t("admin.ldapPasswordKeep") : ""}
+              className={inputClass}
+            />
+          ))}
+          {field(t("admin.ldapUserFilter"), (
+            <input
+              value={form.userSearchFilter}
+              onChange={(e) => update({ userSearchFilter: e.target.value })}
+              placeholder="(uid={0})"
+              className={inputClass}
+            />
+          ))}
+          {field(t("admin.ldapDisplayName"), (
+            <input
+              value={form.displayNameAttribute}
+              onChange={(e) => update({ displayNameAttribute: e.target.value })}
+              className={inputClass}
+            />
+          ))}
+          {field(t("admin.ldapAdminGroup"), (
+            <input
+              value={form.adminGroupDn}
+              onChange={(e) => update({ adminGroupDn: e.target.value })}
+              placeholder="cn=ci-admins,ou=groups,dc=example,dc=org"
+              className={inputClass}
+            />
+          ))}
+          {field(t("admin.ldapDefaultProject"), (
+            <input
+              value={form.defaultProject}
+              onChange={(e) => update({ defaultProject: e.target.value })}
+              placeholder="Default"
+              className={inputClass}
+            />
+          ))}
+          <div className="flex items-center gap-5 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.useSsl}
+                onChange={(e) => update({ useSsl: e.target.checked, startTls: e.target.checked ? false : form.startTls })}
+              />
+              {t("admin.ldapUseSsl")}
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.startTls}
+                onChange={(e) => update({ startTls: e.target.checked, useSsl: e.target.checked ? false : form.useSsl })}
+              />
+              {t("admin.ldapStartTls")}
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.acceptAnyCertificate}
+                onChange={(e) => update({ acceptAnyCertificate: e.target.checked })}
+              />
+              {t("admin.ldapAcceptAnyCert")}
+            </label>
+          </div>
+        </div>
+
+        {isSuperAdmin && (
+          <div className="mt-4 flex items-center gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void save()}
+              className="rounded-md bg-success-btn px-3 py-1.5 text-sm font-medium text-white hover:bg-success-btn-hover disabled:opacity-50"
+            >
+              {t("common.save")}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void test()}
+              className="rounded-md border border-line px-3 py-1.5 text-sm hover:bg-hover disabled:opacity-50"
+            >
+              {t("admin.ldapTest")}
+            </button>
+          </div>
+        )}
+
+        {testSteps && (
+          <div className="mt-3 space-y-1 rounded-md bg-[#0d1117] p-3 font-mono text-xs text-[#c9d1d9]">
+            {testSteps.map((step) => (
+              <div key={step.name} className={step.ok ? "text-[#7ee787]" : "text-[#ff7b72]"}>
+                {step.ok ? "✓" : "✗"} {step.name}: {step.detail}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!isSuperAdmin && (
+          <p className="mt-3 text-xs text-fg-muted">{t("admin.ldapReadOnlyHint")}</p>
+        )}
+      </div>
+    </section>
   );
 }
 

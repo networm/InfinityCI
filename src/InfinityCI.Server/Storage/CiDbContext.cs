@@ -17,7 +17,8 @@ public sealed class CiDbContext(DbContextOptions<CiDbContext> options) : DbConte
     public DbSet<JobRun> JobRuns => Set<JobRun>();
     public DbSet<AgentRecord> Agents => Set<AgentRecord>();
     public DbSet<AgentEnrollment> AgentEnrollments => Set<AgentEnrollment>();
-    public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
+        public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
+        public DbSet<LdapSettings> LdapSettings => Set<LdapSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -127,6 +128,14 @@ public sealed class CiDbContext(DbContextOptions<CiDbContext> options) : DbConte
                 new ValueConverter<DateTimeOffset, long>(v => v.ToUnixTimeMilliseconds(), v => DateTimeOffset.FromUnixTimeMilliseconds(v)));
             e.Property(x => x.LastUsedUtc).HasConversion(
                 new ValueConverter<DateTimeOffset?, long?>(v => v.HasValue ? v.Value.ToUnixTimeMilliseconds() : null, v => v.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds(v.Value) : null));
+        });
+
+        modelBuilder.Entity<LdapSettings>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.UpdatedUtc).HasConversion(
+                new ValueConverter<DateTimeOffset, long>(v => v.ToUnixTimeMilliseconds(), v => DateTimeOffset.FromUnixTimeMilliseconds(v)));
         });
     }
 

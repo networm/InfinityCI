@@ -17,7 +17,7 @@ public static class DbMigrator
 {
     /// <summary>Schema version of the model before RunNumber was introduced.</summary>
     public const int BaselineVersion = 5;
-    public const int LatestVersion = 9;
+    public const int LatestVersion = 10;
 
     private sealed record MigrationStep(int FromVersion, int ToVersion, string Name, Action<CiDbContext> Apply);
 
@@ -80,6 +80,28 @@ public static class DbMigrator
         new(8, 9, "add WorkflowStates.WorkspaceDir (local working-directory override)", db =>
         {
             AddColumnIfMissing(db, "WorkflowStates", "WorkspaceDir", "TEXT");
+        }),
+        new(9, 10, "add LdapSettings (admin-managed LDAP directory configuration)", db =>
+        {
+            db.Database.ExecuteSqlRaw("""
+                CREATE TABLE IF NOT EXISTS LdapSettings (
+                    Id INTEGER NOT NULL PRIMARY KEY,
+                    Enabled INTEGER NOT NULL DEFAULT 0,
+                    Server TEXT NOT NULL DEFAULT '',
+                    Port INTEGER NOT NULL DEFAULT 389,
+                    BaseDn TEXT NOT NULL DEFAULT '',
+                    BindDn TEXT NOT NULL DEFAULT '',
+                    EncryptedBindPassword TEXT NULL,
+                    UserSearchFilter TEXT NOT NULL DEFAULT '',
+                    DisplayNameAttribute TEXT NOT NULL DEFAULT '',
+                    UseSsl INTEGER NOT NULL DEFAULT 0,
+                    StartTls INTEGER NOT NULL DEFAULT 0,
+                    AcceptAnyCertificate INTEGER NOT NULL DEFAULT 0,
+                    AdminGroupDn TEXT NULL,
+                    DefaultProject TEXT NULL,
+                    UpdatedUtc INTEGER NOT NULL DEFAULT 0
+                );
+                """);
         }),
     ];
 

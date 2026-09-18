@@ -35,6 +35,7 @@ public record AgentConfigRequest(int MaxConcurrentBuilds, string[]? Labels, Dict
 public record FavoriteRequest(bool Favorite);
 public record EnabledToggleRequest(bool Enabled);
 public record NotifyChannelsRequest(List<NotifyChannel>? Channels);
+public record LdapConfigRequest(bool Enabled, string Server, int Port, string BaseDn, string BindDn, string? BindPassword, string? UserSearchFilter, string? DisplayNameAttribute, bool UseSsl, bool StartTls, bool AcceptAnyCertificate, string? AdminGroupDn, string? DefaultProject);
 public record WorkspaceRequest(string? WorkspaceDir);
 public record WebhookTriggerRequest(Dictionary<string, string>? Params);
 public record EnabledRequest(bool Enabled);
@@ -51,6 +52,7 @@ public static class CiApi
         MapJobs(app);
         MapDashboard(app);
         MapWorkflowControl(app);
+        MapLdap(app);
         MapRuns(app);
         MapAgents(app);
         MapTokens(app);
@@ -74,8 +76,7 @@ public static class CiApi
     }
 
     private static void MapAuth(IEndpointRouteBuilder app)
-    {
-        app.MapPost("/api/auth/login", async (LoginRequest request, CiDbContext db, HttpContext http, LdapAuthenticator ldap, ILogger<LdapAuthenticator> ldapLogger) =>
+    {        app.MapPost("/api/auth/login", async (LoginRequest request, CiDbContext db, HttpContext http, LdapSettingsService ldapSettings, LdapAuthenticator ldap, ILogger<LdapAuthenticator> ldapLogger) =>
         {
             var user = await db.Users.Include(u => u.Projects).ThenInclude(up => up.Project)
                 .FirstOrDefaultAsync(u => u.Username == request.Username);
@@ -89,13 +90,16 @@ public static class CiApi
             }
 
             // LDAP fallback: verify against the directory; first successful login
-            // auto-provisions a plain User account without a local password.
-            if (ldap.Enabled)
+            // auto-provisions an account without a local password. The role comes
+            // from the admin-group mapping (User by default), and first-time users
+            // join the configured default project.
+            var ldapConfig = await ldapSettings.GetAsync();
+            if (ldapConfig.Enabled && !string.IsNullOrWhiteSpace(ldapConfig.Server))
             {
                 LdapUser? ldapUser;
                 try
                 {
-                    ldapUser = ldap.Authenticate(request.Username, request.Password);
+                    ldapUser = ldap.Authenticate(ldapConfig, request.Username, request.Password);
                 }
                 catch (Exception ex)
                 {
@@ -105,6 +109,7 @@ public static class CiApi
                 }
                 if (ldapUser is not null)
                 {
+                    var role = ResolveLdapRole(ldapUser, ldapConfig);
                     if (user is null)
                     {
                         user = new User
@@ -112,12 +117,25 @@ public static class CiApi
                             Username = request.Username.Trim(),
                             DisplayName = ldapUser.DisplayName,
                             PasswordHash = "", // LDAP-only: no local password until an admin sets one
-                            Role = AppRoles.User,
+                            Role = role,
                         };
+                        if (!string.IsNullOrWhiteSpace(ldapConfig.DefaultProject))
+                        {
+                            var project = await db.Projects.FirstOrDefaultAsync(p => p.Name == ldapConfig.DefaultProject);
+                            if (project is not null)
+                                user.Projects.Add(new UserProject { ProjectId = project.Id });
+                        }
                         db.Users.Add(user);
                         await db.SaveChangesAsync();
                         user = await db.Users.Include(u => u.Projects).ThenInclude(up => up.Project)
                             .FirstAsync(u => u.Id == user.Id);
+                    }
+                    else if (user.Role != role && user.Role != AppRoles.SuperAdmin)
+                    {
+                        // Keep directory-managed accounts in sync with the group
+                        // mapping; manually granted SuperAdmin is never touched.
+                        user.Role = role;
+                        await db.SaveChangesAsync();
                     }
                     return await SignInAsync(db, http, user);
                 }
@@ -126,14 +144,15 @@ public static class CiApi
             return Results.Unauthorized();
         }).AllowAnonymous();
 
-        app.MapGet("/api/auth/config", (LdapAuthenticator ldap) =>
-            Results.Ok(new { ldapEnabled = ldap.Enabled })).AllowAnonymous();
+        app.MapGet("/api/auth/config", async (LdapSettingsService ldapSettings) =>
+            Results.Ok(new { ldapEnabled = (await ldapSettings.GetAsync()).Enabled })).AllowAnonymous();
 
         app.MapPost("/api/auth/logout", async (HttpContext http) =>
         {
             await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return Results.Ok();
         }).AllowAnonymous();
+
 
         app.MapGet("/api/me", async (ClaimsPrincipal user, CiDbContext db) =>
         {
@@ -972,6 +991,107 @@ public static class CiApi
             }
         }).AllowAnonymous();
     }
+
+    // -- LDAP directory settings (admin-managed, stored in the database) --
+
+    private static void MapLdap(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/api/ldap/config", async (LdapSettingsService settings) =>
+        {
+            var config = await settings.GetAsync();
+            var (fromDb, hasBindPassword) = await settings.GetStatusAsync();
+            return Results.Ok(new
+            {
+                config.Enabled,
+                config.Server,
+                config.Port,
+                config.BaseDn,
+                config.BindDn,
+                config.UserSearchFilter,
+                config.DisplayNameAttribute,
+                config.UseSsl,
+                config.StartTls,
+                config.AcceptAnyCertificate,
+                config.AdminGroupDn,
+                config.DefaultProject,
+                hasBindPassword,
+                source = fromDb ? "db" : "appsettings",
+            });
+        }).RequireAuthorization("Admins");
+
+        app.MapPut("/api/ldap/config", async (LdapConfigRequest request, LdapSettingsService settings, ILogger<LdapAuthenticator> logger) =>
+        {
+            var config = ToLdapOptions(request);
+            var error = ValidateLdapConfig(config);
+            if (error is not null) return Results.BadRequest(new { message = error });
+            await settings.SaveAsync(config, request.BindPassword);
+            logger.LogInformation("LDAP configuration updated (enabled: {Enabled}, server: {Server})", config.Enabled, config.Server);
+            var (fromDb, hasBindPassword) = await settings.GetStatusAsync();
+            return Results.Ok(new { source = fromDb ? "db" : "appsettings", hasBindPassword });
+        }).RequireAuthorization("SuperAdmin");
+
+        app.MapPost("/api/ldap/test", async (LdapConfigRequest request, LdapSettingsService settings, LdapAuthenticator ldap) =>
+        {
+            var config = ToLdapOptions(request);
+            var error = ValidateLdapConfig(config);
+            if (error is not null) return Results.BadRequest(new { message = error });
+            // The form may not carry a password (write-only field): fall back to
+            // the stored one when the bind DN is unchanged.
+            if (string.IsNullOrWhiteSpace(request.BindPassword))
+            {
+                var saved = await settings.GetAsync();
+                if (config.BindDn.Equals(saved.BindDn, StringComparison.OrdinalIgnoreCase))
+                    config.BindPassword = saved.BindPassword;
+            }
+            var result = ldap.TestConfiguration(config);
+            return Results.Ok(new
+            {
+                ok = result.Ok,
+                steps = result.Steps.Select(s => new { s.Name, s.Ok, s.Detail }),
+            });
+        }).RequireAuthorization("SuperAdmin");
+    }
+
+    private static LdapOptions ToLdapOptions(LdapConfigRequest request) => new()
+    {
+        Enabled = request.Enabled,
+        Server = request.Server.Trim(),
+        Port = request.Port,
+        BaseDn = request.BaseDn.Trim(),
+        BindDn = request.BindDn.Trim(),
+        BindPassword = "",
+        UserSearchFilter = request.UserSearchFilter?.Trim() ?? "",
+        DisplayNameAttribute = request.DisplayNameAttribute?.Trim() ?? "",
+        UseSsl = request.UseSsl,
+        StartTls = request.StartTls && !request.UseSsl,
+        AcceptAnyCertificate = request.AcceptAnyCertificate,
+        AdminGroupDn = request.AdminGroupDn?.Trim() ?? "",
+        DefaultProject = request.DefaultProject?.Trim() ?? "",
+    };
+
+    private static string? ValidateLdapConfig(LdapOptions config)
+    {
+        if (config.Port is < 1 or > 65535)
+            return Msg.T("Port must be between 1 and 65535.", "端口必须在 1-65535 之间。");
+        if (config.Enabled && string.IsNullOrWhiteSpace(config.Server))
+            return Msg.T("LDAP server is required when enabled.", "启用 LDAP 时必须填写服务器地址。");
+        if (config.Enabled && string.IsNullOrWhiteSpace(config.BaseDn))
+            return Msg.T("Base DN is required when enabled.", "启用 LDAP 时必须填写 Base DN。");
+        if (config.UseSsl && config.StartTls)
+            return Msg.T("LDAPS and StartTLS are mutually exclusive.", "LDAPS 与 StartTLS 只能二选一。");
+        var filterError = LdapAuthenticator.ValidateUserFilter(config.UserSearchFilter);
+        if (filterError is not null)
+            return Msg.T($"User search filter: {filterError}.", $"用户过滤器：{filterError}。");
+        return null;
+    }
+
+    /// <summary>Admin-group members map to Admin on login; everyone else is User.
+    /// SuperAdmin is never granted or revoked automatically.</summary>
+    private static string ResolveLdapRole(LdapUser ldapUser, LdapOptions config) =>
+        !string.IsNullOrWhiteSpace(config.AdminGroupDn)
+        && ldapUser.MemberOf.Any(m => string.Equals(m, config.AdminGroupDn, StringComparison.OrdinalIgnoreCase))
+            ? AppRoles.Admin
+            : AppRoles.User;
 
     // -- user API tokens (self-service machine/CLI access) --
 

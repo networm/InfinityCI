@@ -55,6 +55,7 @@ builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOpt
 // LDAP directory login (disabled unless InfinityCI:Ldap:Enabled is true).
 builder.Services.Configure<LdapOptions>(builder.Configuration.GetSection(LdapOptions.SectionName));
 builder.Services.AddSingleton<LdapAuthenticator>();
+builder.Services.AddSingleton<LdapSettingsService>();
 
 builder.Services.AddDbContext<CiDbContext>((sp, db) =>
 {

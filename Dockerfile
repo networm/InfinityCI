@@ -24,8 +24,10 @@ RUN dotnet publish src/InfinityCI.Server -c Release -o /app/publish
 
 # -- stage 3: runtime --
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
+# git: SCM checkout. libldap: System.DirectoryServices.Protocols (LDAP login).
+# tzdata: cron schedules run in the container's timezone.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git tzdata \
+    && apt-get install -y --no-install-recommends git tzdata libldap-2.5-0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

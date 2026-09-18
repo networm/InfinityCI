@@ -92,6 +92,28 @@ public sealed class StoredCredential
     public DateTimeOffset CreatedUtc { get; set; }
 }
 
+/// <summary>Global LDAP directory settings (single row, Id = 1), editable from
+/// the admin page. Empty fields fall back to the "InfinityCI:Ldap" appsettings
+/// defaults; the bind password is stored Data-Protection encrypted.</summary>
+public sealed class LdapSettings
+{
+    public int Id { get; set; }
+    public bool Enabled { get; set; }
+    public string Server { get; set; } = "";
+    public int Port { get; set; } = 389;
+    public string BaseDn { get; set; } = "";
+    public string BindDn { get; set; } = "";
+    public string? EncryptedBindPassword { get; set; }
+    public string UserSearchFilter { get; set; } = "";
+    public string DisplayNameAttribute { get; set; } = "";
+    public bool UseSsl { get; set; }
+    public bool StartTls { get; set; }
+    public bool AcceptAnyCertificate { get; set; }
+    public string? AdminGroupDn { get; set; }
+    public string? DefaultProject { get; set; }
+    public DateTimeOffset UpdatedUtc { get; set; }
+}
+
 /// <summary>Persistent agent record: enrollment + lifecycle (enable/disable).</summary>
 public sealed class AgentRecord
 {
