@@ -45,7 +45,13 @@ builder.WebHost.ConfigureKestrel(options =>
 });
 
 builder.Host.UseSerilog((context, configuration) =>
-    configuration.ReadFrom.Configuration(context.Configuration).Enrich.FromLogContext());
+    configuration.ReadFrom.Configuration(
+        context.Configuration,
+        // Single-file publishes cannot discover Serilog assemblies by name;
+        // point the reader at the sink assemblies explicitly.
+        new Serilog.Settings.Configuration.ConfigurationReaderOptions(typeof(ConsoleLoggerConfigurationExtensions).Assembly,
+            typeof(FileLoggerConfigurationExtensions).Assembly))
+        .Enrich.FromLogContext());
 
 builder.Services.Configure<CiServerOptions>(builder.Configuration.GetSection(CiServerOptions.SectionName));
 // Also expose the bound instance directly for consumers taking CiServerOptions.
@@ -209,7 +215,12 @@ app.UseRequestLocalization(new RequestLocalizationOptions
 // index.html must always revalidate (hashed /static assets are immutable), or
 // browsers heuristically cache a stale entry page and miss new deployments.
 var ciOptions = app.Services.GetRequiredService<CiServerOptions>();
-var distDir = Path.GetFullPath(Path.Combine(app.Environment.ContentRootPath, ciOptions.WebDistDir));
+// Published archives carry the SPA in ./wwwroot; the dev layout keeps it in
+// the repository's web/dist — detect instead of requiring configuration.
+var webDistDir = Directory.Exists(Path.Combine(app.Environment.ContentRootPath, "wwwroot"))
+    ? "wwwroot"
+    : ciOptions.WebDistDir;
+var distDir = Path.GetFullPath(Path.Combine(app.Environment.ContentRootPath, webDistDir));
 if (Directory.Exists(distDir))
 {
     var fileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(distDir);
