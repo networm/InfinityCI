@@ -81,24 +81,32 @@ Three battle-tested details are baked into the script:
 
 ## Step 3: the CI workflow
 
-On the Infinity CI side, a few lines of YAML are all it takes:
+On the Infinity CI side, a few lines of YAML are all it takes. Chain the three steps with `needs` and the run page renders them as a DAG — when prepare fails, the downstream jobs are skipped automatically:
 
 ```yaml
-name: UnityCIGame
+name: UnityCIGame2
 project: Default
 jobs:
-  build:
-    runs_on: agent          # dispatch to the Windows machine with Unity installed
+  prepare:
+    runs_on: agent        # environment self-check on the Unity build machine
     steps:
       - name: prepare
         command: python CI/platform/windows/prepare.py
+  build:
+    needs: [prepare]      # starts only after prepare succeeds
+    runs_on: local
+    steps:
       - name: build
         command: python CI/platform/windows/build.py
+  deploy:
+    needs: [build]
+    runs_on: local
+    steps:
       - name: deploy
         command: python CI/platform/windows/deploy.py
 ```
 
-Bind the task's **local directory** to the project path on the build machine (e.g. `C:\Users\me\Work\Projects\MyUnityGame`) and the agent executes in place — no need to push gigabytes of Unity project into Git.
+Bind the task's **local directory** to the project path (e.g. `C:\Users\me\Work\Projects\MyUnityGame` — this applies to both local execution and agents) and everything runs in place — no need to push gigabytes of Unity project into Git.
 
 ## What it looks like
 

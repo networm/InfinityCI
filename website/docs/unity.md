@@ -81,24 +81,32 @@ args = [
 
 ## 第三步：CI 工作流
 
-Infinity CI 侧只需要几行 YAML：
+Infinity CI 侧只需要几行 YAML。用 `needs` 把三个步骤串成依赖链，Run 页面会渲染成 DAG 依赖图，prepare 失败时后续 Job 自动跳过：
 
 ```yaml
-name: UnityCIGame
+name: UnityCIGame2
 project: Default
 jobs:
-  build:
-    runs_on: agent          # 派发到装了 Unity 的 Windows 打包机
+  prepare:
+    runs_on: agent        # 在装了 Unity 的打包机上自检环境
     steps:
       - name: prepare
         command: python CI/platform/windows/prepare.py
+  build:
+    needs: [prepare]      # prepare 成功后才开始
+    runs_on: local
+    steps:
       - name: build
         command: python CI/platform/windows/build.py
+  deploy:
+    needs: [build]
+    runs_on: local
+    steps:
       - name: deploy
         command: python CI/platform/windows/deploy.py
 ```
 
-任务设置里把**本地目录**绑定为打包机上的工程路径（如 `C:\Users\me\Work\Projects\MyUnityGame`），Agent 就地执行，几个 GB 的 Unity 工程无需进 Git。
+任务设置里把**本地目录**绑定为工程路径（如 `C:\Users\me\Work\Projects\MyUnityGame`，对本地执行与 Agent 双端生效），就地执行，几个 GB 的 Unity 工程无需进 Git。
 
 ## 运行效果
 

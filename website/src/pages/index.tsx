@@ -73,12 +73,12 @@ function Hero() {
               </span>
             </div>
           </div>
-          <TerminalCard title="Infinity CI · runs/UnityCIGame/1">
-            <span className={styles.tGray}>$ infinity run UnityCIGame</span>
+          <TerminalCard title="Infinity CI · runs/UnityCIGame2/1">
+            <span className={styles.tGray}>$ infinity run UnityCIGame2</span>
             {'\n'}
-            <span className={styles.tGray}>─ DAG ──────────────────────</span>
+            <span className={styles.tGray}>─ DAG ─────────────────────────────</span>
             {'\n'}
-            <span className={styles.tBlue}>  ● start → build → deploy → ● </span>
+            <span className={styles.tBlue}>  ● start → prepare → build → deploy → ● </span>
             {'\n\n'}
             <span className={styles.tGreen}>09:01:02</span>
             {'  '}
@@ -226,10 +226,10 @@ function QuickStart() {
             </span>
           </TerminalCard>
           <TerminalCard title="workflow.yml">
-            <span className={styles.tBlue}>name</span>: UnityCIGame
+            <span className={styles.tBlue}>name</span>: UnityCIGame2
             {'\n'}
             <span className={styles.tBlue}>jobs</span>:
-            {'\n  build:\n    '}
+            {'\n  prepare:\n    '}
             <span className={styles.tBlue}>runs_on</span>: agent
             {'\n    '}
             <span className={styles.tBlue}>steps</span>:
@@ -237,10 +237,18 @@ function QuickStart() {
             <span className={styles.tBlue}>name</span>: prepare
             {'\n        '}
             <span className={styles.tBlue}>command</span>: python CI/platform/windows/prepare.py
+            {'\n  build:\n    '}
+            <span className={styles.tBlue}>needs</span>: [prepare]
+            {'\n    '}
+            <span className={styles.tBlue}>steps</span>:
             {'\n      - '}
             <span className={styles.tBlue}>name</span>: build
             {'\n        '}
             <span className={styles.tBlue}>command</span>: python CI/platform/windows/build.py
+            {'\n  deploy:\n    '}
+            <span className={styles.tBlue}>needs</span>: [build]
+            {'\n    '}
+            <span className={styles.tBlue}>steps</span>:
             {'\n      - '}
             <span className={styles.tBlue}>name</span>: deploy
             {'\n        '}
