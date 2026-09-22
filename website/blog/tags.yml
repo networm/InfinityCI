@@ -1,0 +1,14 @@
+ai:
+  label: AI 编程
+  permalink: /ai
+  description: 使用 AI 编程工具的开发实践
+
+cicd:
+  label: CI/CD
+  permalink: /cicd
+  description: 持续集成与持续交付
+
+unity:
+  label: Unity
+  permalink: /unity
+  description: Unity 游戏开发与打包

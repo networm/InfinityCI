@@ -1,0 +1,35 @@
+:root {
+  --ifm-color-primary: #1a7f37;
+  --ifm-color-primary-dark: #177231;
+  --ifm-color-primary-darker: #156b2e;
+  --ifm-color-primary-darkest: #115826;
+  --ifm-color-primary-light: #1e923e;
+  --ifm-color-primary-lighter: #219a42;
+  --ifm-color-primary-lightest: #26b04b;
+  --ifm-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --ifm-font-family-monospace: ui-monospace, SFMono-Regular, 'SF Mono',
+    Menlo, Consolas, 'Liberation Mono', monospace;
+  --ifm-code-font-size: 90%;
+  --ifm-heading-font-weight: 700;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  --site-gh-bg: #f6f8fa;
+  --site-gh-border: #d0d7de;
+  --site-term-bg: #0d1117;
+  --site-term-border: #30363d;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #3fb950;
+  --ifm-color-primary-dark: #38a748;
+  --ifm-color-primary-darker: #359e44;
+  --ifm-color-primary-darkest: #2c8238;
+  --ifm-color-primary-light: #55c665;
+  --ifm-color-primary-lighter: #5fca6e;
+  --ifm-color-primary-lightest: #7fd78b;
+  --ifm-background-color: #0d1117;
+  --ifm-background-surface-color: #161b22;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+  --site-gh-bg: #161b22;
+  --site-gh-border: #30363d;
+}

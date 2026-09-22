@@ -1,0 +1,34 @@
+{
+  "link.title.文档": {
+    "message": "Docs",
+    "description": "The title of the footer links column with title=文档 in the footer"
+  },
+  "link.title.更多": {
+    "message": "More",
+    "description": "The title of the footer links column with title=更多 in the footer"
+  },
+  "link.item.label.快速开始": {
+    "message": "Get Started",
+    "description": "The label of footer link with label=快速开始 linking to /docs/quickstart"
+  },
+  "link.item.label.工作流语法": {
+    "message": "Workflow Syntax",
+    "description": "The label of footer link with label=工作流语法 linking to /docs/workflow"
+  },
+  "link.item.label.Agent 部署": {
+    "message": "Agents",
+    "description": "The label of footer link with label=Agent 部署 linking to /docs/agents"
+  },
+  "link.item.label.博客": {
+    "message": "Blog",
+    "description": "The label of footer link with label=博客 linking to /blog"
+  },
+  "link.item.label.GitHub": {
+    "message": "GitHub",
+    "description": "The label of footer link with label=GitHub linking to https://github.com/networm/InfinityCI"
+  },
+  "copyright": {
+    "message": "Copyright © 2026 Infinity CI. Built with Docusaurus.",
+    "description": "The footer copyright"
+  }
+}

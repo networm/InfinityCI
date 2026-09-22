@@ -1,0 +1,18 @@
+{
+  "sidebar.docs.category.核心概念": {
+    "message": "Core Concepts",
+    "description": "The label for category '核心概念' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.配置与管理": {
+    "message": "Configuration & Management",
+    "description": "The label for category '配置与管理' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.运维与实战": {
+    "message": "Operations & Recipes",
+    "description": "The label for category '运维与实战' in sidebar 'docs'"
+  },
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  }
+}
