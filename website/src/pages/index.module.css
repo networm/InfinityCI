@@ -227,6 +227,55 @@
   margin: 0 auto;
 }
 
+/* ---------- MIT 横幅 ---------- */
+
+.mitBanner {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-top: 1.6rem;
+  padding: 1.4rem 1.6rem;
+  border: 1px solid var(--ifm-color-primary);
+  border-radius: 10px;
+  background: var(--ifm-background-surface-color);
+}
+
+.mitBadge {
+  flex: none;
+  padding: 0.55rem 1.1rem;
+  border-radius: 8px;
+  background: var(--ifm-color-primary);
+  color: #fff;
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+
+.mitText {
+  flex: 1;
+  min-width: 0;
+}
+
+.mitText h3 {
+  margin-bottom: 0.3rem;
+  font-size: 1.1rem;
+}
+
+.mitText p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--ifm-color-emphasis-600);
+}
+
+@media screen and (max-width: 720px) {
+  .mitBanner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.9rem;
+  }
+}
+
 .cta {
   text-align: center;
   padding: 4.5rem 0;

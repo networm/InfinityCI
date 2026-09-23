@@ -29,7 +29,7 @@ function Hero() {
       <div className="container">
         <div className={styles.heroInner}>
           <div className={styles.heroText}>
-            <span className={styles.heroTag}>⚡ Open Source · Self-Hosted</span>
+            <span className={styles.heroTag}>⚡ Open Source · MIT Licensed</span>
             <Heading as="h1" className={styles.heroTitle}>
               {siteConfig.title}
             </Heading>
@@ -195,6 +195,24 @@ function Features() {
               <p>{f.desc}</p>
             </div>
           ))}
+        </div>
+        <div className={styles.mitBanner}>
+          <span className={styles.mitBadge}>MIT</span>
+          <div className={styles.mitText}>
+            <h3>
+              <Translate id="mit.title">完全开源，MIT 许可证</Translate>
+            </h3>
+            <p>
+              <Translate id="mit.desc">
+                自由使用、修改、分发，商用无限制——你的 CI，你说了算。
+              </Translate>
+            </p>
+          </div>
+          <Link
+            className="button button--primary"
+            href="https://github.com/networm/InfinityCI/blob/main/LICENSE">
+            <Translate id="mit.button">查看许可证</Translate>
+          </Link>
         </div>
       </div>
     </section>

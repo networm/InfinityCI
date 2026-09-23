@@ -492,5 +492,14 @@
   "theme.tags.tagsPageTitle": {
     "message": "Tags",
     "description": "The title of the tag list page"
+  },
+  "mit.title": {
+    "message": "Fully open source under MIT"
+  },
+  "mit.desc": {
+    "message": "Use, modify, and distribute freely — including commercial use. Your CI, your rules."
+  },
+  "mit.button": {
+    "message": "View License"
   }
 }
