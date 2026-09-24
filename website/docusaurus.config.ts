@@ -7,8 +7,8 @@ const config: Config = {
   tagline: '类 Jenkins / GitHub Actions 的自托管持续集成服务器',
   favicon: 'img/favicon.ico',
 
-  url: 'https://networm.github.io',
-  baseUrl: '/InfinityCI/',
+  url: 'https://infinityci.github.io',
+  baseUrl: '/',
 
   organizationName: 'networm',
   projectName: 'InfinityCI',
